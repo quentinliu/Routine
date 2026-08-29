@@ -1,0 +1,56 @@
+import { app, BrowserWindow } from 'electron';
+import path from 'node:path';
+import { registerIpc, setMainWindow } from './ipc';
+
+let mainWindow: BrowserWindow | null = null;
+
+function createWindow(): void {
+  mainWindow = new BrowserWindow({
+    width: 1400,
+    height: 900,
+    minWidth: 1100,
+    minHeight: 700,
+    title: 'Routine',
+    backgroundColor: '#0d1117',
+    webPreferences: {
+      preload: path.join(__dirname, 'preload.js'),
+      contextIsolation: true,
+      nodeIntegration: false
+    }
+  });
+
+  setMainWindow(mainWindow);
+
+  mainWindow.webContents.on(
+    'console-message',
+    (_e, _level, message, _line, sourceId) => {
+      console.log(`[renderer] ${message} ${sourceId ?? ''}`);
+    }
+  );
+  mainWindow.webContents.on(
+    'did-fail-load',
+    (_e, code, desc, url) => {
+      console.log(`[fail-load] ${code} ${desc} ${url}`);
+    }
+  );
+
+  const devMode = process.env.ROUTINE_DEV === '1' && !app.isPackaged;
+  if (devMode) {
+    void mainWindow.loadURL('http://localhost:5173');
+  } else {
+    void mainWindow.loadFile(path.join(__dirname, '../../dist-renderer/index.html'));
+  }
+}
+
+app.whenReady().then(() => {
+  registerIpc();
+  createWindow();
+
+  app.on('activate', () => {
+    if (BrowserWindow.getAllWindows().length === 0) createWindow();
+  });
+});
+
+app.on('window-all-closed', () => {
+  if (process.platform !== 'darwin') app.quit();
+});
