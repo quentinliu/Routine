@@ -1,0 +1,17 @@
+appId: com.routine.app
+productName: Routine
+directories:
+  output: release
+files:
+  - dist-main/**
+  - dist-renderer/**
+  - package.json
+mac:
+  target:
+    - target: dmg
+      arch: [x64]
+    - target: zip
+      arch: [x64]
+  identity: null
+  category: public.app-category.productivity
+asar: true
