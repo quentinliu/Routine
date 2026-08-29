@@ -1,0 +1,33 @@
+# 依赖
+node_modules/
+
+# 构建产物（tsc / vite / electron-builder 输出）
+dist-main/
+dist-renderer/
+release/
+*.dmg
+*.zip
+*.blockmap
+
+# 本地缓存与临时文件
+.tmp/
+.tmp-npm-cache/
+.cache/
+
+# 日志
+*.log
+npm-debug.log*
+
+# 环境变量与密钥（API Key 等不入库）
+.env
+.env.*
+!.env.example
+
+# 编辑器 / IDE
+.vscode/
+.idea/
+*.swp
+
+# 操作系统
+.DS_Store
+Thumbs.db
