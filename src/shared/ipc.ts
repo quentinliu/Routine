@@ -17,6 +17,10 @@ import type {
   LogEntry,
   SafetyRequest,
   Settings,
+  SshExecOptions,
+  SshExecResult,
+  SshHostConfig,
+  SshTestResult,
   SystemSnapshot,
   TodoRunRecord,
   TodoTask,
@@ -57,6 +61,12 @@ export const IPC = {
   DbTest: 'db:test',
   InspectionRun: 'inspection:run',
   InspectionReports: 'inspection:reports',
+  // invoke (renderer → main) — SSH 远程主机（P1.5 契约批准）
+  SshList: 'ssh:list',
+  SshSave: 'ssh:save',
+  SshDelete: 'ssh:delete',
+  SshTest: 'ssh:test',
+  SshExec: 'ssh:exec',
   // events (main → renderer)
   ChatDelta: 'chat:delta',
   ChatError: 'chat:error',
@@ -109,6 +119,12 @@ export interface RoutineApi {
   dbTest(id: string): Promise<DbTestResult>;
   inspectionRun(datasourceId: string): Promise<InspectionReport>;
   inspectionReports(datasourceId?: string): Promise<InspectionReport[]>;
+
+  sshList(): Promise<SshHostConfig[]>;
+  sshSave(host: SshHostConfig): Promise<SshHostConfig>;
+  sshDelete(id: string): Promise<void>;
+  sshTest(id: string): Promise<SshTestResult>;
+  sshExec(id: string, command: string, options?: SshExecOptions): Promise<SshExecResult>;
 
   onChatDelta(cb: (e: ChatDeltaEvent) => void): () => void;
   onChatError(cb: (e: ChatErrorEvent) => void): () => void;

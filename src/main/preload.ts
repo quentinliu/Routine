@@ -34,6 +34,11 @@ const CH = {
   DbTest: 'db:test',
   InspectionRun: 'inspection:run',
   InspectionReports: 'inspection:reports',
+  SshList: 'ssh:list',
+  SshSave: 'ssh:save',
+  SshDelete: 'ssh:delete',
+  SshTest: 'ssh:test',
+  SshExec: 'ssh:exec',
   ChatDelta: 'chat:delta',
   ChatError: 'chat:error',
   AgentStatus: 'agent:status',
@@ -86,6 +91,11 @@ const api: RoutineApi = {
   inspectionRun: (datasourceId) => ipcRenderer.invoke(CH.InspectionRun, { datasourceId }),
   inspectionReports: (datasourceId) =>
     ipcRenderer.invoke(CH.InspectionReports, { datasourceId }),
+  sshList: () => ipcRenderer.invoke(CH.SshList),
+  sshSave: (host) => ipcRenderer.invoke(CH.SshSave, { host }),
+  sshDelete: (id) => ipcRenderer.invoke(CH.SshDelete, { id }),
+  sshTest: (id) => ipcRenderer.invoke(CH.SshTest, { id }),
+  sshExec: (id, command, options) => ipcRenderer.invoke(CH.SshExec, { id, command, options }),
 
   onChatDelta: (cb) => subscribe(CH.ChatDelta, cb),
   onChatError: (cb) => subscribe(CH.ChatError, cb),

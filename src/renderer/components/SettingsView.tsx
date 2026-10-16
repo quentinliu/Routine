@@ -2,6 +2,7 @@ import { useState } from 'react';
 import type { Settings } from '../../shared/types';
 import { api } from '../ipc';
 import { useAppStore } from '../store';
+import { SshSection } from './SshSection';
 
 type HealthState = { cloud: boolean; local: boolean } | null;
 
@@ -227,6 +228,8 @@ export function SettingsView() {
               </select>
             </label>
           </section>
+
+          <SshSection />
         </div>
 
         <div className="settings-footer">

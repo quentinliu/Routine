@@ -5,6 +5,8 @@ import {
   type ChatMessage,
   type ChatSession,
   type Settings,
+  type SshExecOptions,
+  type SshHostConfig,
   type TodoTask
 } from '../shared/types';
 import { Orchestrator, type OrchestratorEvent } from './agent/orchestrator';
@@ -16,6 +18,7 @@ import { getFileAgentService } from './services/fileAgent';
 import { getFileIndexService } from './services/fileIndexer';
 import { advance, getScheduler } from './services/scheduler';
 import { getStorage, initStorage } from './services/storage';
+import { getSshService } from './services/ssh/service';
 import { getWebSearchService } from './services/webSearch';
 import { expandHome } from './util/paths';
 
@@ -278,6 +281,16 @@ export function registerIpc(): void {
     await getScheduler().runTaskNow(p.id);
     sendToRenderer(IPC.TodoRunsChanged, undefined);
   });
+
+  ipcMain.handle(IPC.SshList, () => getSshService().listHosts());
+  ipcMain.handle(IPC.SshSave, (_e, p: { host: SshHostConfig }) => getSshService().saveHost(p.host));
+  ipcMain.handle(IPC.SshDelete, (_e, p: { id: string }) => getSshService().deleteHost(p.id));
+  ipcMain.handle(IPC.SshTest, (_e, p: { id: string }) => getSshService().testHost(p.id));
+  ipcMain.handle(
+    IPC.SshExec,
+    (_e, p: { id: string; command: string; options?: SshExecOptions }) =>
+      getSshService().exec(p.id, p.command, p.options)
+  );
 
   getScheduler().bindRunner({
     runner: async (task, emitLog) => {

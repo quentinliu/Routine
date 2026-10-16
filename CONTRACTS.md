@@ -5,6 +5,7 @@
 > 变更记录：
 > - 2026-08-31 · P1 契约扩展（数据库巡检功能），编排者已批准，规划见 `.sisyphus/plans/db-inspection-architecture.md`
 > - 2026-08-31 · T0 条款修订：`src/main/preload.ts` 改为追加式扩展（原为冻结只读），编排者已批准，依据 `.sisyphus/plans/p1-task-breakdown.md`
+> - 2026-10-16 · P1.5 契约扩展（SSH 远程主机与远程命令执行），编排者已批准：`src/shared/types.ts` 追加 `SshHostConfig` / `SshTestResult` / `SshExecResult` / `SshExecOptions`；`src/shared/ipc.ts` 追加 `ssh:list` / `ssh:save` / `ssh:delete` / `ssh:test` / `ssh:exec` 通道与对应 `RoutineApi` 方法；主进程新增 `src/main/services/ssh/**`（依赖 `ssh2`，纯 JS，无原生模块，CJS 兼容），存储新增 `ssh-hosts.json`；既有条目未修改
 
 ## 目录所有权
 
@@ -48,6 +49,11 @@ invoke（renderer→main，参数为对象）：
 | `db:test` | `{id}` | `{ok, version, latencyMs}` |
 | `inspection:run` | `{datasourceId}` | `InspectionReport`（进度经 `inspection:progress` 事件；同数据源防重入） |
 | `inspection:reports` | `{datasourceId?}` | `InspectionReport[]` |
+| `ssh:list` | `{}` | `SshHostConfig[]` |
+| `ssh:save` | `{host}` | `SshHostConfig`（校验 + upsert） |
+| `ssh:delete` | `{id}` | `void` |
+| `ssh:test` | `{id}` | `SshTestResult`（握手 + 版本横幅 + 延迟，不执行任何命令） |
+| `ssh:exec` | `{id, command, options?}` | `SshExecResult`（每次独立连接；超时与输出上限钳制） |
 
 事件（main→renderer，`sendToRenderer(channel, payload)`）：
 
@@ -76,3 +82,4 @@ invoke（renderer→main，参数为对象）：
 - 无原生模块依赖；存储 = userData 目录下 JSON 文件
 - 文件索引默认目录：`~/Desktop`, `~/Documents`, `~/Downloads`；`~` 展开用 `expandHome()`（util/paths.ts）
 - 数据库巡检（P1 批准）：依赖 `mysql2`、`pg`（纯 JS，无原生模块，CJS 兼容）；数据源存 `datasources.json`、巡检报告存 `inspections.json`（每数据源上限 200 条）；巡检为只读诊断（safe 级，不经安全门）；检查项接口与巡检清单见规划文档 §5
+- SSH 远程主机（P1.5 批准）：依赖 `ssh2`（纯 JS，无原生模块，CJS 兼容）；主机配置存 `ssh-hosts.json`；`ssh:test` 仅握手不执行命令，`ssh:exec` 每次独立建立连接并在结束时关闭（无长连接池）；执行超时钳制 [1s, 300s]（默认 30s），输出上限钳制 [1KB, 10MB]（默认 512KB）；由用户在设置页直接触发（点击即确认），不接入安全门

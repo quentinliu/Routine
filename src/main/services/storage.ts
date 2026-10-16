@@ -7,6 +7,7 @@ import {
   type FileRecord,
   type InspectionReport,
   type Settings,
+  type SshHostConfig,
   type TodoRunRecord,
   type TodoTask
 } from '../../shared/types';
@@ -17,6 +18,7 @@ const INDEX_FILE = 'file-index.json';
 const TODOS_FILE = 'todos.json';
 const DATASOURCES_FILE = 'datasources.json';
 const INSPECTIONS_FILE = 'inspections.json';
+const SSH_HOSTS_FILE = 'ssh-hosts.json';
 
 const MAX_TODO_RUNS = 300;
 const MAX_REPORTS_PER_DATASOURCE = 200;
@@ -161,6 +163,15 @@ export class StorageService {
       );
     }
     this.writeJson(INSPECTIONS_FILE, trimmed);
+  }
+
+  loadSshHosts(): SshHostConfig[] {
+    const saved = this.readJson<SshHostConfig[]>(SSH_HOSTS_FILE, []);
+    return Array.isArray(saved) ? saved : [];
+  }
+
+  saveSshHosts(list: SshHostConfig[]): void {
+    this.writeJson(SSH_HOSTS_FILE, list);
   }
 
   saveIndex(files: FileRecord[]): void {

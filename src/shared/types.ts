@@ -275,3 +275,48 @@ export interface InspectionProgressEvent {
   checkId: string;
   status: CheckStatus;
 }
+
+// ===== SSH 远程主机（P1.5 契约批准 2026-10-16，见 CONTRACTS.md 变更记录）=====
+
+export type SshAuthType = 'password' | 'key';
+
+export interface SshHostConfig {
+  id: string;
+  name: string;
+  host: string;
+  port: number;
+  user: string;
+  authType: SshAuthType;
+  password?: string;
+  /** authType === 'key' 时必填，支持 ~ 展开 */
+  privateKeyPath?: string;
+  passphrase?: string;
+  enabled: boolean;
+  /** 毫秒，默认 10000，范围 [1000, 60000] */
+  timeoutMs?: number;
+}
+
+export interface SshTestResult {
+  ok: boolean;
+  /** 远端版本横幅，如 SSH-2.0-OpenSSH_9.8 */
+  banner: string;
+  latencyMs: number;
+}
+
+export interface SshExecResult {
+  ok: boolean;
+  /** null = 被信号终止或流异常关闭 */
+  code: number | null;
+  signal?: string;
+  stdout: string;
+  stderr: string;
+  truncated: boolean;
+  durationMs: number;
+}
+
+export interface SshExecOptions {
+  /** 毫秒，默认 30000，范围 [1000, 300000] */
+  timeoutMs?: number;
+  /** stdout+stderr 合计上限字节，默认 524288，范围 [1024, 10485760] */
+  maxOutputBytes?: number;
+}

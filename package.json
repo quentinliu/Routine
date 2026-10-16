@@ -25,6 +25,7 @@
     "react-dom": "^19.2.8",
     "react-markdown": "^10.1.0",
     "remark-gfm": "^4.0.1",
+    "ssh2": "^1.17.0",
     "zustand": "^5.0.15"
   },
   "devDependencies": {
@@ -32,6 +33,7 @@
     "@types/pg": "^8.23.1",
     "@types/react": "^19.2.18",
     "@types/react-dom": "^19.2.5",
+    "@types/ssh2": "^1.15.6",
     "@vitejs/plugin-react": "^6.1.0",
     "electron": "44.0.0",
     "electron-builder": "^26.15.3",
