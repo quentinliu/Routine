@@ -31,3 +31,6 @@ npm-debug.log*
 # 操作系统
 .DS_Store
 Thumbs.db
+
+# OpenCode 会话状态
+.omo/
