@@ -19,6 +19,7 @@ interface QueueItem {
 
 const TICK_MS = 30_000;
 const CATCH_UP_WINDOW_MS = 24 * 3600_000;
+const MAX_CONCURRENT_LIMIT = 8;
 
 export function todayLocal(ts = Date.now()): string {
   const d = new Date(ts);
@@ -94,7 +95,7 @@ export class Scheduler {
   private hooks: SchedulerHooks | null = null;
   private readonly queue: QueueItem[] = [];
   private readonly queuedIds = new Set<string>();
-  private draining = false;
+  private activeCount = 0;
 
   bindRunner(hooks: SchedulerHooks): void {
     this.hooks = hooks;
@@ -152,26 +153,41 @@ export class Scheduler {
     this.queuedIds.add(task.id);
     return new Promise<void>((resolve) => {
       this.queue.push({ task, resolve });
-      void this.drain();
+      this.pump();
     });
   }
 
-  private async drain(): Promise<void> {
-    if (this.draining) return;
-    this.draining = true;
+  private maxConcurrent(): number {
     try {
-      while (this.queue.length > 0) {
-        const item = this.queue.shift();
-        if (!item) break;
-        try {
-          await this.execute(item.task);
-        } finally {
+      const raw = Number(getStorage().loadSettings().scheduler?.maxConcurrent);
+      if (!Number.isFinite(raw)) return 1;
+      return Math.min(MAX_CONCURRENT_LIMIT, Math.max(1, Math.floor(raw)));
+    } catch {
+      return 1;
+    }
+  }
+
+  private pump(): void {
+    while (this.activeCount < this.maxConcurrent() && this.queue.length > 0) {
+      const item = this.queue.shift();
+      if (!item) break;
+      this.activeCount++;
+      void this.execute(item.task)
+        .catch((err) => {
+          this.hooks?.emitLog({
+            id: crypto.randomUUID(),
+            ts: Date.now(),
+            agent: 'system',
+            level: 'error',
+            text: `任务执行异常: ${err instanceof Error ? err.message : String(err)}`
+          });
+        })
+        .finally(() => {
+          this.activeCount--;
           this.queuedIds.delete(item.task.id);
           item.resolve();
-        }
-      }
-    } finally {
-      this.draining = false;
+          this.pump();
+        });
     }
   }
 

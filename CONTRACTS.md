@@ -2,18 +2,23 @@
 
 本文件定义三个并行功能代理共同遵守的契约。`src/shared/**` 为冻结区，任何修改须经编排者批准。
 
+> 变更记录：
+> - 2026-08-31 · P1 契约扩展（数据库巡检功能），编排者已批准，规划见 `.sisyphus/plans/db-inspection-architecture.md`
+> - 2026-08-31 · T0 条款修订：`src/main/preload.ts` 改为追加式扩展（原为冻结只读），编排者已批准，依据 `.sisyphus/plans/p1-task-breakdown.md`
+
 ## 目录所有权
 
 | 代理 | 可写目录/文件 | 职责 |
 |------|--------------|------|
 | A 核心代理 | `src/main/llm/**`, `src/main/agent/**`, `src/main/ipc.ts` | LLM 双模式路由、编排器、安全门、IPC 装配 |
-| B 服务代理 | `src/main/services/**`, `src/main/util/**` | 文件索引/读取、系统控制、联网搜索、浏览器自动化 |
-| C 界面代理 | `src/renderer/**`（不含 `global.d.ts`） | 对话界面、Agent 面板、设置页、安全确认弹窗 |
+| B 服务代理 | `src/main/services/**`, `src/main/util/**` | 文件索引/读取、系统控制、联网搜索、浏览器自动化、数据库巡检（MySQL/PostgreSQL，`src/main/services/db/**`） |
+| C 界面代理 | `src/renderer/**`（不含 `global.d.ts`） | 对话界面、Agent 面板、设置页、安全确认弹窗、数据库巡检视图 |
 
 - `src/shared/types.ts` 与 `src/shared/ipc.ts`：冻结，只读。
-- `src/main/index.ts`、`src/main/preload.ts`：冻结，只读（已定稿）。
+- `src/main/index.ts`：冻结，只读（已定稿）。
+- `src/main/preload.ts`：允许**追加式扩展**（比照 storage.ts 条款）——新增 IPC 通道时须在 `CH` 表与 `api` 实现中追加对应条目；既有条目不得修改，保持向后兼容；通道字符串须与 `src/shared/ipc.ts` 逐字一致（沙箱 preload 无法 require 共享常量）。
 - `src/main/services/storage.ts`、`src/main/util/shell.ts`、`src/main/util/paths.ts`：已完整实现，B 代理可直接使用；如需扩展请以追加方式修改并保持向后兼容。
-- 服务单例导出（已定稿，B 实现时必须保留）：`getFileAgentService()` / `getComputerService()` / `getWebSearchService()` / `getBrowserAgentService()`，A 代理在 IPC 装配时使用。
+- 服务单例导出（已定稿，B 实现时必须保留）：`getFileAgentService()` / `getComputerService()` / `getWebSearchService()` / `getBrowserAgentService()` / `getInspectorService()`，A 代理在 IPC 装配时使用。
 
 ## IPC 通道（见 `src/shared/ipc.ts` 的 `IPC` 常量）
 
@@ -37,6 +42,12 @@ invoke（renderer→main，参数为对象）：
 | `browser:available` | `{}` | `boolean` |
 | `llm:health` | `{}` | `{cloud, local}` |
 | `app:open-external` | `{url}` | `void` |
+| `db:list` | `{}` | `DatasourceConfig[]` |
+| `db:save` | `{datasource}` | `DatasourceConfig` |
+| `db:delete` | `{id}` | `void` |
+| `db:test` | `{id}` | `{ok, version, latencyMs}` |
+| `inspection:run` | `{datasourceId}` | `InspectionReport`（进度经 `inspection:progress` 事件；同数据源防重入） |
+| `inspection:reports` | `{datasourceId?}` | `InspectionReport[]` |
 
 事件（main→renderer，`sendToRenderer(channel, payload)`）：
 
@@ -48,6 +59,7 @@ invoke（renderer→main，参数为对象）：
 | `safety:request` | `SafetyRequest` |
 | `log:entry` | `LogEntry` |
 | `index:progress` | `IndexProgress` |
+| `inspection:progress` | `{reportId, checkId, status}` |
 
 ## 编排器协议（A 代理实现）
 
@@ -63,3 +75,4 @@ invoke（renderer→main，参数为对象）：
 - 主进程为 CJS（tsc 编译），只能 require 兼容包；渲染层由 vite 打包，可用 ESM
 - 无原生模块依赖；存储 = userData 目录下 JSON 文件
 - 文件索引默认目录：`~/Desktop`, `~/Documents`, `~/Downloads`；`~` 展开用 `expandHome()`（util/paths.ts）
+- 数据库巡检（P1 批准）：依赖 `mysql2`、`pg`（纯 JS，无原生模块，CJS 兼容）；数据源存 `datasources.json`、巡检报告存 `inspections.json`（每数据源上限 200 条）；巡检为只读诊断（safe 级，不经安全门）；检查项接口与巡检清单见规划文档 §5

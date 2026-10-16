@@ -28,13 +28,20 @@ const CH = {
   TodoDelete: 'todo:delete',
   TodoToggle: 'todo:toggle',
   TodoRun: 'todo:run',
+  DbList: 'db:list',
+  DbSave: 'db:save',
+  DbDelete: 'db:delete',
+  DbTest: 'db:test',
+  InspectionRun: 'inspection:run',
+  InspectionReports: 'inspection:reports',
   ChatDelta: 'chat:delta',
   ChatError: 'chat:error',
   AgentStatus: 'agent:status',
   SafetyRequest: 'safety:request',
   LogEntry: 'log:entry',
   IndexProgress: 'index:progress',
-  TodoRunsChanged: 'todo:runs-changed'
+  TodoRunsChanged: 'todo:runs-changed',
+  InspectionProgress: 'inspection:progress'
 } as const;
 
 function subscribe<T>(channel: string, cb: (payload: T) => void): () => void {
@@ -72,6 +79,13 @@ const api: RoutineApi = {
   todoDelete: (id) => ipcRenderer.invoke(CH.TodoDelete, { id }),
   todoToggle: (id, enabled) => ipcRenderer.invoke(CH.TodoToggle, { id, enabled }),
   todoRun: (id) => ipcRenderer.invoke(CH.TodoRun, { id }),
+  dbList: () => ipcRenderer.invoke(CH.DbList),
+  dbSave: (datasource) => ipcRenderer.invoke(CH.DbSave, { datasource }),
+  dbDelete: (id) => ipcRenderer.invoke(CH.DbDelete, { id }),
+  dbTest: (id) => ipcRenderer.invoke(CH.DbTest, { id }),
+  inspectionRun: (datasourceId) => ipcRenderer.invoke(CH.InspectionRun, { datasourceId }),
+  inspectionReports: (datasourceId) =>
+    ipcRenderer.invoke(CH.InspectionReports, { datasourceId }),
 
   onChatDelta: (cb) => subscribe(CH.ChatDelta, cb),
   onChatError: (cb) => subscribe(CH.ChatError, cb),
@@ -79,7 +93,8 @@ const api: RoutineApi = {
   onSafetyRequest: (cb) => subscribe(CH.SafetyRequest, cb),
   onLogEntry: (cb) => subscribe(CH.LogEntry, cb),
   onIndexProgress: (cb) => subscribe(CH.IndexProgress, cb),
-  onTodoRunsChanged: (cb) => subscribe(CH.TodoRunsChanged, cb)
+  onTodoRunsChanged: (cb) => subscribe(CH.TodoRunsChanged, cb),
+  onInspectionProgress: (cb) => subscribe(CH.InspectionProgress, cb)
 };
 
 contextBridge.exposeInMainWorld('api', api);

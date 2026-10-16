@@ -209,6 +209,24 @@ export function SettingsView() {
               </div>
             )}
           </section>
+          <section>
+            <h4>定时任务</h4>
+            <label className="field">
+              <span>同时执行任务数（1 = 串行执行）</span>
+              <select
+                value={String(form.scheduler.maxConcurrent)}
+                onChange={(e) =>
+                  update({ scheduler: { maxConcurrent: Number(e.target.value) } })
+                }
+              >
+                {[1, 2, 3, 4, 5, 6, 7, 8].map((n) => (
+                  <option key={n} value={n}>
+                    {n} 个
+                  </option>
+                ))}
+              </select>
+            </label>
+          </section>
         </div>
 
         <div className="settings-footer">

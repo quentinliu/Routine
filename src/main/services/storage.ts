@@ -3,7 +3,9 @@ import path from 'node:path';
 import {
   DEFAULT_SETTINGS,
   type ChatSession,
+  type DatasourceConfig,
   type FileRecord,
+  type InspectionReport,
   type Settings,
   type TodoRunRecord,
   type TodoTask
@@ -13,8 +15,11 @@ const SETTINGS_FILE = 'settings.json';
 const SESSIONS_FILE = 'sessions.json';
 const INDEX_FILE = 'file-index.json';
 const TODOS_FILE = 'todos.json';
+const DATASOURCES_FILE = 'datasources.json';
+const INSPECTIONS_FILE = 'inspections.json';
 
 const MAX_TODO_RUNS = 300;
+const MAX_REPORTS_PER_DATASOURCE = 200;
 
 interface TodosFileShape {
   tasks: TodoTask[];
@@ -62,6 +67,7 @@ export class StorageService {
 
   loadSettings(): Settings {
     const saved = this.readJson<Partial<Settings>>(SETTINGS_FILE, {});
+    const rawConcurrent = Number(saved.scheduler?.maxConcurrent);
     return {
       ...DEFAULT_SETTINGS,
       ...saved,
@@ -70,6 +76,11 @@ export class StorageService {
       search: { ...DEFAULT_SETTINGS.search, ...(saved.search ?? {}) },
       indexDirs: saved.indexDirs?.length ? saved.indexDirs : DEFAULT_SETTINGS.indexDirs,
       excludeGlobs: saved.excludeGlobs?.length ? saved.excludeGlobs : DEFAULT_SETTINGS.excludeGlobs,
+      scheduler: {
+        maxConcurrent: Number.isFinite(rawConcurrent)
+          ? Math.min(8, Math.max(1, Math.floor(rawConcurrent)))
+          : DEFAULT_SETTINGS.scheduler.maxConcurrent
+      },
       siteCredentials: saved.siteCredentials ?? DEFAULT_SETTINGS.siteCredentials
     };
   }
@@ -116,6 +127,40 @@ export class StorageService {
       .sort((a, b) => b.startedAt - a.startedAt)
       .slice(0, MAX_TODO_RUNS);
     this.writeJson(TODOS_FILE, { tasks, runs: trimmed });
+  }
+
+  loadDatasources(): DatasourceConfig[] {
+    const saved = this.readJson<DatasourceConfig[]>(DATASOURCES_FILE, []);
+    return Array.isArray(saved) ? saved : [];
+  }
+
+  saveDatasources(list: DatasourceConfig[]): void {
+    this.writeJson(DATASOURCES_FILE, list);
+  }
+
+  loadInspections(): InspectionReport[] {
+    const saved = this.readJson<InspectionReport[]>(INSPECTIONS_FILE, []);
+    return Array.isArray(saved) ? saved : [];
+  }
+
+  appendInspectionReport(report: InspectionReport): void {
+    const all = this.loadInspections();
+    all.push(report);
+    const byDatasource = new Map<string, InspectionReport[]>();
+    for (const r of all) {
+      const bucket = byDatasource.get(r.datasourceId) ?? [];
+      bucket.push(r);
+      byDatasource.set(r.datasourceId, bucket);
+    }
+    const trimmed: InspectionReport[] = [];
+    for (const bucket of byDatasource.values()) {
+      trimmed.push(
+        ...bucket
+          .sort((a, b) => b.startedAt - a.startedAt)
+          .slice(0, MAX_REPORTS_PER_DATASOURCE)
+      );
+    }
+    this.writeJson(INSPECTIONS_FILE, trimmed);
   }
 
   saveIndex(files: FileRecord[]): void {

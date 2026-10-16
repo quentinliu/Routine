@@ -21,6 +21,11 @@ export interface SiteCredential {
   password: string;
 }
 
+export interface SchedulerConfig {
+  /** 定时任务最大并发执行数（1 = 串行执行，与历史行为一致） */
+  maxConcurrent: number;
+}
+
 export interface Settings {
   providerMode: 'cloud' | 'local';
   cloud: CloudProviderConfig;
@@ -28,6 +33,7 @@ export interface Settings {
   search: SearchConfig;
   indexDirs: string[];
   excludeGlobs: string[];
+  scheduler: SchedulerConfig;
   siteCredentials?: Record<string, SiteCredential>;
 }
 
@@ -49,6 +55,7 @@ export const DEFAULT_SETTINGS: Settings = {
   },
   indexDirs: ['~/Desktop', '~/Documents', '~/Downloads'],
   excludeGlobs: ['node_modules/**', '.git/**', 'Library/**', '*.app/**', '**/*.dmg', '**/*.zip'],
+  scheduler: { maxConcurrent: 1 },
   siteCredentials: {}
 };
 
@@ -211,4 +218,60 @@ export interface TodoRunRecord {
   finishedAt?: number;
   ok?: boolean;
   summary: string;
+}
+
+// ===== 数据库巡检（P1 契约批准 2026-08-31，见 CONTRACTS.md 变更记录）=====
+
+export type DbDialect = 'mysql' | 'postgresql';
+
+export interface DatasourceConfig {
+  id: string;
+  name: string;
+  type: DbDialect;
+  host: string;
+  port: number;
+  user: string;
+  password: string;
+  database?: string;
+  ssl?: boolean;
+  enabled: boolean;
+  timeoutMs?: number;
+  thresholds?: Record<string, number>;
+}
+
+export interface DbTestResult {
+  ok: boolean;
+  version: string;
+  latencyMs: number;
+}
+
+export type CheckStatus = 'ok' | 'warn' | 'error' | 'skipped';
+
+export interface CheckResult {
+  checkId: string;
+  title: string;
+  status: CheckStatus;
+  value?: string;
+  metrics?: Record<string, number>;
+  threshold?: string;
+  detail: string[];
+  suggestion?: string;
+  durationMs: number;
+}
+
+export interface InspectionReport {
+  id: string;
+  datasourceId: string;
+  datasourceName: string;
+  startedAt: number;
+  finishedAt: number;
+  ok: boolean;
+  serverVersion: string;
+  results: CheckResult[];
+}
+
+export interface InspectionProgressEvent {
+  reportId: string;
+  checkId: string;
+  status: CheckStatus;
 }

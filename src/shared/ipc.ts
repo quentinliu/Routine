@@ -7,9 +7,13 @@ import type {
   ChatSession,
   ComputerExecResult,
   ComputerOp,
+  DatasourceConfig,
+  DbTestResult,
   FileReadResult,
   FileSearchResult,
   IndexProgress,
+  InspectionProgressEvent,
+  InspectionReport,
   LogEntry,
   SafetyRequest,
   Settings,
@@ -46,6 +50,13 @@ export const IPC = {
   TodoDelete: 'todo:delete',
   TodoToggle: 'todo:toggle',
   TodoRun: 'todo:run',
+  // invoke (renderer → main) — 数据库巡检（P1 契约批准）
+  DbList: 'db:list',
+  DbSave: 'db:save',
+  DbDelete: 'db:delete',
+  DbTest: 'db:test',
+  InspectionRun: 'inspection:run',
+  InspectionReports: 'inspection:reports',
   // events (main → renderer)
   ChatDelta: 'chat:delta',
   ChatError: 'chat:error',
@@ -53,7 +64,8 @@ export const IPC = {
   SafetyRequest: 'safety:request',
   LogEntry: 'log:entry',
   IndexProgress: 'index:progress',
-  TodoRunsChanged: 'todo:runs-changed'
+  TodoRunsChanged: 'todo:runs-changed',
+  InspectionProgress: 'inspection:progress'
 } as const;
 
 export interface LlmHealth {
@@ -91,6 +103,12 @@ export interface RoutineApi {
   todoDelete(id: string): Promise<void>;
   todoToggle(id: string, enabled: boolean): Promise<TodoTask>;
   todoRun(id: string): Promise<void>;
+  dbList(): Promise<DatasourceConfig[]>;
+  dbSave(datasource: DatasourceConfig): Promise<DatasourceConfig>;
+  dbDelete(id: string): Promise<void>;
+  dbTest(id: string): Promise<DbTestResult>;
+  inspectionRun(datasourceId: string): Promise<InspectionReport>;
+  inspectionReports(datasourceId?: string): Promise<InspectionReport[]>;
 
   onChatDelta(cb: (e: ChatDeltaEvent) => void): () => void;
   onChatError(cb: (e: ChatErrorEvent) => void): () => void;
@@ -99,4 +117,5 @@ export interface RoutineApi {
   onLogEntry(cb: (l: LogEntry) => void): () => void;
   onIndexProgress(cb: (p: IndexProgress) => void): () => void;
   onTodoRunsChanged(cb: () => void): () => void;
+  onInspectionProgress(cb: (e: InspectionProgressEvent) => void): () => void;
 }
