@@ -6,6 +6,7 @@
 > - 2026-08-31 · P1 契约扩展（数据库巡检功能），编排者已批准，规划见 `.sisyphus/plans/db-inspection-architecture.md`
 > - 2026-08-31 · T0 条款修订：`src/main/preload.ts` 改为追加式扩展（原为冻结只读），编排者已批准，依据 `.sisyphus/plans/p1-task-breakdown.md`
 > - 2026-10-16 · P1.5 契约扩展（SSH 远程主机与远程命令执行），编排者已批准：`src/shared/types.ts` 追加 `SshHostConfig` / `SshTestResult` / `SshExecResult` / `SshExecOptions`；`src/shared/ipc.ts` 追加 `ssh:list` / `ssh:save` / `ssh:delete` / `ssh:test` / `ssh:exec` 通道与对应 `RoutineApi` 方法；主进程新增 `src/main/services/ssh/**`（依赖 `ssh2`，纯 JS，无原生模块，CJS 兼容），存储新增 `ssh-hosts.json`；既有条目未修改
+> - 2026-10-16 · P1.5b 契约扩展（SSH Agent 化），编排者已批准：`AgentName` 追加 `'ssh'`（`AGENT_NAMES` / `AGENT_LABELS` 同步）；编排器 JSON 协议新增工具 `ssh.hosts {}`（safe）与 `ssh.exec {host, command}`（medium，每次执行前经安全门 UI 确认，host 支持名称/id/唯一模糊匹配）；规划提示词动态注入当前主机清单；`OrchestratorDeps` 新增 `ssh: SshService`
 
 ## 目录所有权
 
@@ -69,7 +70,7 @@ invoke（renderer→main，参数为对象）：
 
 ## 编排器协议（A 代理实现）
 
-`Orchestrator.handleUserMessage(sessionId, text, emit)` 通过 `emit(OrchestratorEvent)` 推送四类事件（定义于 `src/main/agent/orchestrator.ts`）。主 Agent 采用统一 JSON 协议驱动子工具，与 LLM 供应商无关。
+`Orchestrator.handleUserMessage(sessionId, text, emit)` 通过 `emit(OrchestratorEvent)` 推送四类事件（定义于 `src/main/agent/orchestrator.ts`）。主 Agent 采用统一 JSON 协议驱动子工具，与 LLM 供应商无关。工具白名单：`file.search` / `file.read` / `computer.info` / `computer.exec` / `search.web` / `browser.run` / `ssh.hosts` / `ssh.exec`；风险分级见 `SafetyGate.classify`（`ssh.exec` 固定 medium，执行前必须经 UI 确认）。
 
 ## 系统操作白名单（B 代理实现，风险级别已冻结）
 

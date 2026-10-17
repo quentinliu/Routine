@@ -15,6 +15,8 @@ export class SafetyGate {
     if (tool === 'file.search' || tool === 'file.read' || tool === 'search.web') return 'safe';
     if (tool === 'browser.run') return 'safe';
     if (tool === 'computer.info') return 'safe';
+    if (tool === 'ssh.hosts') return 'safe';
+    if (tool === 'ssh.exec') return 'medium';
     if (tool === 'computer.exec') {
       const op =
         typeof args === 'object' && args !== null ? (args as { op?: unknown }).op : undefined;

@@ -80,3 +80,34 @@ export function validateSshCommand(command: string): string {
   }
   return trimmed;
 }
+
+export function resolveHostRef(
+  hosts: SshHostConfig[],
+  ref: string
+): SshHostConfig {
+  if (hosts.length === 0) {
+    throw new Error('尚未配置任何 SSH 主机，请先在设置中添加');
+  }
+  const query = ref.trim();
+  if (!query) {
+    throw new Error(`未指定主机，可用主机: ${hosts.map((h) => h.name).join('、')}`);
+  }
+  const byId = hosts.find((h) => h.id === query);
+  if (byId) return byId;
+  const byName = hosts.filter((h) => h.name.toLowerCase() === query.toLowerCase());
+  if (byName.length === 1) return byName[0];
+  const byAddr = hosts.filter(
+    (h) => `${h.user}@${h.host}`.toLowerCase() === query.toLowerCase()
+  );
+  if (byAddr.length === 1) return byAddr[0];
+  const fuzzy = hosts.filter(
+    (h) => h.name.toLowerCase().includes(query.toLowerCase())
+  );
+  if (fuzzy.length === 1) return fuzzy[0];
+  if (fuzzy.length > 1) {
+    throw new Error(`主机「${query}」匹配到多台: ${fuzzy.map((h) => h.name).join('、')}，请使用完整名称`);
+  }
+  throw new Error(
+    `找不到主机「${query}」，可用主机: ${hosts.map((h) => h.name).join('、') || '（无）'}`
+  );
+}

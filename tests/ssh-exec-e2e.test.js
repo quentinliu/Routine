@@ -13,7 +13,7 @@ const HOST_KEY = utils.generateKeyPairSync('ed25519');
 const PASSWORD = 'pw-12345';
 
 function startFakeSshd(handler) {
-  return new Promise((resolve) => {
+  return new Promise((resolve, reject) => {
     const server = new Server({ hostKeys: [HOST_KEY.private] }, (client) => {
       client.on('authentication', (ctx) => {
         if (ctx.method === 'password' && ctx.password === PASSWORD) ctx.accept();
@@ -22,11 +22,16 @@ function startFakeSshd(handler) {
       client.on('ready', () => {
         client.on('session', (accept) => {
           const session = accept();
-          session.once('exec', (accept2, reject, info) => handler(accept2, info.command));
+          session.once('exec', (accept2, reject2, info) => handler(accept2, info.command));
         });
       });
     });
-    server.listen(0, '127.0.0.1', () => resolve({ server, port: server.address().port }));
+    server.once('error', reject);
+    server.listen(0, '127.0.0.1', () => {
+      server.removeListener('error', reject);
+      server.on('error', () => {});
+      resolve({ server, port: server.address().port });
+    });
   });
 }
 

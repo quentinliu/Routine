@@ -7,6 +7,8 @@ import type { FileAgentService } from '../services/fileAgent';
 import type { ComputerService } from '../services/computer';
 import type { WebSearchService } from '../services/webSearch';
 import type { BrowserAgentService } from '../services/browser';
+import type { SshService } from '../services/ssh/service';
+import { resolveHostRef, validateSshCommand } from '../services/ssh/util';
 
 export type OrchestratorEvent =
   | { type: 'agent-status'; status: AgentStatus }
@@ -21,6 +23,7 @@ export interface OrchestratorDeps {
   computer: ComputerService;
   web: WebSearchService;
   browser: BrowserAgentService;
+  ssh: SshService;
 }
 
 interface PlanAction {
@@ -43,7 +46,9 @@ const TOOL_AGENT: Record<string, AgentName> = {
   'computer.info': 'computer',
   'computer.exec': 'computer',
   'search.web': 'search',
-  'browser.run': 'browser'
+  'browser.run': 'browser',
+  'ssh.hosts': 'ssh',
+  'ssh.exec': 'ssh'
 };
 
 const OP_LIST_TEXT = COMPUTER_OPS.map((o) => `  - ${o.op}: ${o.description}（风险 ${o.risk}）`).join(
@@ -60,6 +65,10 @@ const PLANNING_SYSTEM = `你是 Routine 主 Agent，一个运行在 macOS 上的
 ${OP_LIST_TEXT}
 - search.web {query, limit?} — 联网搜索
 - browser.run {instruction} — 视觉浏览器 Agent，自动完成打开页面/登录（需在设置中配置站点凭据）/点击/表单/截图等网页任务
+- ssh.hosts {} — 列出已配置的 SSH 远程主机（名称、地址、是否启用）
+- ssh.exec {host, command} — 通过 SSH 在指定远程主机上执行 shell 命令，返回 stdout/stderr/退出码。host 填主机名称或 id；该命令会在远程主机上真实执行并需用户确认
+
+${'{SSH_HOSTS}'}
 
 输出规则（严格遵守）：
 每一轮你必须只输出一个 JSON 对象，不要输出任何其他文字或代码块标记：
@@ -72,7 +81,20 @@ ${OP_LIST_TEXT}
 - 信息足以回答时 final 非空且 action 必须为 null
 - 高风险系统操作（清空废纸篓、强制退出应用）会先征求用户确认，被拒绝时换其他思路
 - 浏览器任务请把完整自然语言指令传给 browser.run，例如 "打开 github.com 截图并提取正文"
+- SSH 任务：先看下方主机清单，ssh.exec 的 host 参数填主机名称；远程命令会真实执行且每次都需用户确认，被拒绝时不要原样重试；优先使用非破坏性的查看类命令
 - 回答一律使用中文`;
+
+const SSH_HOSTS_PLACEHOLDER = '{SSH_HOSTS}';
+
+function formatSshHostsBlock(hosts: { name: string; address: string; enabled: boolean }[]): string {
+  if (hosts.length === 0) {
+    return 'SSH 主机清单：（尚未配置任何 SSH 主机，ssh.exec 不可用，请引导用户到设置页添加）';
+  }
+  const lines = hosts
+    .map((h) => `  - ${h.name} → ${h.address}${h.enabled ? '' : '（已禁用，不可执行）'}`)
+    .join('\n');
+  return `SSH 主机清单（ssh.exec 的 host 参数使用名称）：\n${lines}`;
+}
 
 const FINAL_SYSTEM =
   '你是 Routine 主 Agent。用中文直接、简洁地回答用户，合理利用已获得的工具结果。使用 Markdown 格式，重点信息可用列表呈现。';
@@ -147,11 +169,25 @@ export class Orchestrator {
     });
   }
 
+  private planningSystem(): string {
+    let hosts: { name: string; address: string; enabled: boolean }[] = [];
+    try {
+      hosts = this.deps.ssh.listHosts().map((h) => ({
+        name: h.name,
+        address: `${h.user}@${h.host}:${h.port}`,
+        enabled: h.enabled
+      }));
+    } catch {
+      hosts = [];
+    }
+    return PLANNING_SYSTEM.replace(SSH_HOSTS_PLACEHOLDER, formatSshHostsBlock(hosts));
+  }
+
   private async dispatch(
     emit: (e: OrchestratorEvent) => void,
     action: PlanAction
   ): Promise<unknown> {
-    const { fileAgent, computer, web, browser } = this.deps;
+    const { fileAgent, computer, web, browser, ssh } = this.deps;
     const args = action.args ?? {};
 
     switch (action.tool) {
@@ -185,6 +221,47 @@ export class Orchestrator {
       }
       case 'search.web':
         return web.search(String(args.query ?? ''), Number(args.limit ?? 6));
+      case 'ssh.hosts': {
+        return this.deps.ssh.listHosts().map((h) => ({
+          id: h.id,
+          name: h.name,
+          address: `${h.user}@${h.host}:${h.port}`,
+          authType: h.authType,
+          enabled: h.enabled
+        }));
+      }
+      case 'ssh.exec': {
+        const host = resolveHostRef(ssh.listHosts(), String(args.host ?? ''));
+        const command = validateSshCommand(String(args.command ?? ''));
+        const request = this.deps.safety.createRequest(
+          'ssh',
+          `在远程主机「${host.name}」（${host.user}@${host.host}）执行命令`,
+          [`命令: ${command}`, '该命令将在远程主机上真实执行，请确认内容安全'],
+          'medium'
+        );
+        this.status(emit, 'ssh', 'waiting-approval', `等待确认: ${command.slice(0, 50)}`);
+        this.log(emit, 'ssh', `远程命令等待用户确认: ${command.slice(0, 80)}`, 'warn');
+        emit({ type: 'safety', request });
+        const approved = await this.deps.safety.awaitApproval(request);
+        if (!approved) {
+          this.status(emit, 'ssh', 'done', '用户已拒绝该命令');
+          throw new Error('用户拒绝执行该远程命令');
+        }
+        this.status(emit, 'ssh', 'acting', command.slice(0, 80));
+        this.log(emit, 'ssh', `执行: ${command}`);
+        const result = await ssh.exec(host.id, command, {
+          timeoutMs: Number(args.timeoutMs) || undefined
+        });
+        return {
+          host: host.name,
+          command,
+          exitCode: result.code,
+          stdout: result.stdout,
+          stderr: result.stderr,
+          truncated: result.truncated,
+          durationMs: result.durationMs
+        };
+      }
       case 'browser.run': {
         const result = await browser.run(String(args.instruction ?? ''), (line) =>
           this.log(emit, 'browser', line)
@@ -228,7 +305,7 @@ export class Orchestrator {
         const provider = await this.deps.router.getActive();
         this.status(emit, 'main', 'thinking', `规划第 ${i + 1} 轮`);
         const res = await provider.chatStream(
-          { system: PLANNING_SYSTEM, messages: planMessages, jsonMode: true, temperature: 0.2 },
+          { system: this.planningSystem(), messages: planMessages, jsonMode: true, temperature: 0.2 },
           () => {}
         );
         const plan = extractJson(res.content);

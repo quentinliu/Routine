@@ -45,6 +45,12 @@ const AGENT_ICONS: Record<AgentName, JSX.Element> = {
       <ellipse cx="12" cy="12" rx="3.8" ry="8.5" fill="none" stroke="currentColor" strokeWidth="1.5" />
       <path d="M3.5 12h17" stroke="currentColor" strokeWidth="1.5" />
     </svg>
+  ),
+  ssh: (
+    <svg viewBox="0 0 24 24" width="15" height="15" aria-hidden>
+      <rect x="3" y="4" width="18" height="16" rx="2" fill="none" stroke="currentColor" strokeWidth="1.8" />
+      <path d="M7 9.5l3 2.5-3 2.5M12.5 15H17" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
   )
 };
 
@@ -94,7 +100,7 @@ export function AgentPanel() {
     <aside className="agent-panel">
       <h3 className="panel-title">Agent 团队</h3>
       <div className="agent-cards">
-        {(['main', 'file', 'computer', 'search', 'browser'] as AgentName[]).map((name) => (
+        {(['main', 'file', 'computer', 'search', 'browser', 'ssh'] as AgentName[]).map((name) => (
           <AgentCard key={name} status={agents[name]} />
         ))}
       </div>

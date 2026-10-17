@@ -43,7 +43,8 @@ function getOrchestrator(): Orchestrator {
       fileAgent: getFileAgentService(),
       computer: getComputerService(),
       web: getWebSearchService(),
-      browser: getBrowserAgentService()
+      browser: getBrowserAgentService(),
+      ssh: getSshService()
     });
   }
   return orchestrator;

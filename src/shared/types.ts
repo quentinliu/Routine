@@ -74,16 +74,17 @@ export interface ChatSession {
   updatedAt: number;
 }
 
-export type AgentName = 'main' | 'file' | 'computer' | 'search' | 'browser';
+export type AgentName = 'main' | 'file' | 'computer' | 'search' | 'browser' | 'ssh';
 
-export const AGENT_NAMES: AgentName[] = ['main', 'file', 'computer', 'search', 'browser'];
+export const AGENT_NAMES: AgentName[] = ['main', 'file', 'computer', 'search', 'browser', 'ssh'];
 
 export const AGENT_LABELS: Record<AgentName, string> = {
   main: '主 Agent',
   file: '文件 Agent',
   computer: '系统 Agent',
   search: '搜索 Agent',
-  browser: '浏览器 Agent'
+  browser: '浏览器 Agent',
+  ssh: 'SSH Agent'
 };
 
 export type AgentState = 'idle' | 'thinking' | 'acting' | 'waiting-approval' | 'done' | 'error';
