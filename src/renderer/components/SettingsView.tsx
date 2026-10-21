@@ -4,10 +4,11 @@ import type { JSX } from 'react';
 import { api } from '../ipc';
 import { useAppStore } from '../store';
 import { SshSection } from './SshSection';
+import { McpSection } from './McpSection';
 
 type HealthState = { cloud: boolean; local: boolean } | null;
 
-type CategoryId = 'models' | 'automation' | 'ssh';
+type CategoryId = 'models' | 'automation' | 'ssh' | 'mcp';
 
 const CATEGORY_ICONS: Record<CategoryId, JSX.Element> = {
   models: (
@@ -44,13 +45,26 @@ const CATEGORY_ICONS: Record<CategoryId, JSX.Element> = {
         strokeLinejoin="round"
       />
     </svg>
+  ),
+  mcp: (
+    <svg viewBox="0 0 24 24" width="15" height="15" aria-hidden>
+      <path
+        d="M9 7V5a3 3 0 0 1 6 0v2m-8 0h10a2 2 0 0 1 2 2v3a6 6 0 0 1-6 6h-2a6 6 0 0 1-6-6V9a2 2 0 0 1 2-2Zm6 11v3.5"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.6"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
   )
 };
 
 const CATEGORIES: { id: CategoryId; label: string }[] = [
   { id: 'models', label: '模型服务' },
   { id: 'automation', label: '文件与自动化' },
-  { id: 'ssh', label: 'SSH 主机' }
+  { id: 'ssh', label: 'SSH 主机' },
+  { id: 'mcp', label: 'MCP 服务' }
 ];
 
 export function SettingsView() {
@@ -310,10 +324,28 @@ export function SettingsView() {
                     </select>
                   </label>
                 </section>
+                <section>
+                  <h4>Agent 循环</h4>
+                  <label className="field">
+                    <span>单次任务最大规划轮数</span>
+                    <select
+                      value={String(form.agent.maxSteps)}
+                      onChange={(e) => update({ agent: { maxSteps: Number(e.target.value) } })}
+                    >
+                      {[4, 6, 8, 12, 16, 20, 24, 30].map((n) => (
+                        <option key={n} value={n}>
+                          {n} 轮
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                </section>
               </>
             )}
 
             {active === 'ssh' && <SshSection />}
+
+            {active === 'mcp' && <McpSection />}
           </div>
         </div>
 
