@@ -10,6 +10,12 @@ const { resolveHostRef } = require('../dist-main/main/services/ssh/util.js');
 const { SshService } = require('../dist-main/main/services/ssh/service.js');
 const { SafetyGate } = require('../dist-main/main/agent/safety.js');
 const { Orchestrator } = require('../dist-main/main/agent/orchestrator.js');
+const { ToolRegistry } = require('../dist-main/main/agent/tools/registry.js');
+const { createFileTools } = require('../dist-main/main/agent/tools/builtin/file.js');
+const { createComputerTools } = require('../dist-main/main/agent/tools/builtin/computer.js');
+const { createWebTools } = require('../dist-main/main/agent/tools/builtin/web.js');
+const { createBrowserTools } = require('../dist-main/main/agent/tools/builtin/browser.js');
+const { createSshTools } = require('../dist-main/main/agent/tools/builtin/ssh.js');
 const { initStorage } = require('../dist-main/main/services/storage.js');
 
 const HOST_KEY = utils.generateKeyPairSync('ed25519');
@@ -80,15 +86,13 @@ function makeOrchestrator(svc, gate, script) {
     })
   };
   const noop = {};
-  const orch = new Orchestrator({
-    router,
-    safety: gate,
-    fileAgent: noop,
-    computer: noop,
-    web: noop,
-    browser: noop,
-    ssh: svc
-  });
+  const registry = new ToolRegistry(gate);
+  registry.register(...createFileTools(noop));
+  registry.register(...createComputerTools(noop));
+  registry.register(...createWebTools(noop));
+  registry.register(...createBrowserTools(noop));
+  registry.register(...createSshTools(svc));
+  const orch = new Orchestrator({ router, safety: gate, registry });
   return { orch, events };
 }
 
