@@ -1,6 +1,6 @@
 {
   "name": "routine",
-  "version": "0.1.2",
+  "version": "0.2.0",
   "description": "Routine - 操作系统级 AI 助手（Intel Mac）",
   "main": "dist-main/main/index.js",
   "author": "liuxuebai",
@@ -17,6 +17,7 @@
     "package": "npm run compile:main && npm run build && electron-builder --mac --x64"
   },
   "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.32.1",
     "chokidar": "^3.6.0",
     "mysql2": "^3.24.2",
     "pg": "^8.23.0",
