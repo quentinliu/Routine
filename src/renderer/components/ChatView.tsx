@@ -47,7 +47,7 @@ export function ChatView() {
   const setChatError = useAppStore((s) => s.setChatError);
   const sessions = useAppStore((s) => s.sessions);
   const currentSessionId = useAppStore((s) => s.currentSessionId);
-  const sending = useAppStore((s) => s.sending);
+  const runningSessionId = useAppStore((s) => s.runningSessionId);
   const traces = useAppStore((s) => s.tracesBySession[currentSessionId] ?? EMPTY_TRACES);
 
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -90,7 +90,9 @@ export function ChatView() {
             {messages.map((m) => (
               <MessageBubble key={m.id} message={m} />
             ))}
-            {traces.length > 0 && <TraceTimeline traces={traces} live={sending} />}
+            {traces.length > 0 && (
+              <TraceTimeline traces={traces} live={runningSessionId === currentSessionId} />
+            )}
             {streamingMsg && (
               <MessageBubble
                 message={{

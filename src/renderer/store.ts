@@ -49,7 +49,7 @@ interface AppState {
   settingsOpen: boolean;
   fileDialogOpen: boolean;
   todoDialogOpen: boolean;
-  sending: boolean;
+  runningSessionId: string | null;
 
   bootstrap(): Promise<void>;
   refreshSessions(): Promise<void>;
@@ -88,7 +88,7 @@ export const useAppStore = create<AppState>()((set, get) => ({
   settingsOpen: false,
   fileDialogOpen: false,
   todoDialogOpen: false,
-  sending: false,
+  runningSessionId: null,
 
   bootstrap: async () => {
     const settings = await api.settingsGet();
@@ -137,8 +137,12 @@ export const useAppStore = create<AppState>()((set, get) => ({
   },
 
   sendText: async (text) => {
-    const { currentSessionId, messages } = get();
+    const { currentSessionId, messages, runningSessionId } = get();
     if (!text.trim()) return;
+    if (runningSessionId !== null) {
+      set({ chatError: '当前有任务正在执行，请等待完成或先停止' });
+      return;
+    }
     const userMsg: ChatMessage = {
       id: crypto.randomUUID(),
       role: 'user',
@@ -147,7 +151,7 @@ export const useAppStore = create<AppState>()((set, get) => ({
     };
     set({
       messages: [...messages, userMsg],
-      sending: true,
+      runningSessionId: currentSessionId,
       chatError: null,
       streamingMsg: null,
       tracesBySession: { ...get().tracesBySession, [currentSessionId]: [] },
@@ -156,7 +160,7 @@ export const useAppStore = create<AppState>()((set, get) => ({
     try {
       await api.chatSend(currentSessionId, text);
     } catch {
-      set({ sending: false });
+      set({ runningSessionId: null });
     }
   },
 
@@ -196,31 +200,28 @@ export const useAppStore = create<AppState>()((set, get) => ({
 
   receiveDelta: (sessionId, msgId, delta, done) => {
     const current = get().streamingMsg;
-
-    if (sessionId !== get().currentSessionId) {
-      if (done) void get().refreshSessions();
-      return;
-    }
+    const viewing = sessionId === get().currentSessionId;
 
     if (done) {
-      if (current && current.id === msgId) {
+      const patch: Partial<AppState> = {};
+      // 执行态复位只看运行中会话，与用户当前停留在哪个视图无关
+      if (get().runningSessionId === sessionId) patch.runningSessionId = null;
+      if (viewing && current && current.id === msgId) {
         const finalMsg: ChatMessage = {
           id: msgId,
           role: 'assistant',
           content: current.content,
           createdAt: now()
         };
-        set((s) => ({
-          messages: [...s.messages, finalMsg],
-          streamingMsg: null,
-          sending: false
-        }));
-      } else {
-        set({ sending: false });
+        patch.messages = [...get().messages, finalMsg];
+        patch.streamingMsg = null;
       }
+      if (Object.keys(patch).length > 0) set(patch);
       void get().refreshSessions();
       return;
     }
+
+    if (!viewing) return;
     if (!current) {
       set({ streamingMsg: { id: msgId, content: delta } });
     } else if (current.id === msgId) {
@@ -228,7 +229,7 @@ export const useAppStore = create<AppState>()((set, get) => ({
     }
   },
 
-  setChatError: (e) => set({ chatError: e, sending: false, streamingMsg: null }),
+  setChatError: (e) => set({ chatError: e, runningSessionId: null, streamingMsg: null }),
   setPendingSafety: (r) => set({ pendingSafety: r }),
   setIndexProgress: (p) => set({ indexProgress: p }),
   setSettingsOpen: (open) => set({ settingsOpen: open }),
