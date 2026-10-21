@@ -11,8 +11,16 @@ export interface OllamaConfig {
   model: string;
 }
 
+// ===== 联网搜索（T2 契约批准 2026-10-21，见 CONTRACTS.md 变更记录）=====
+
+/**
+ * auto = 自动回退链：Tavily(配置 Key 时) → 必应，首个成功即返回；
+ * DuckDuckGo 已移除（在受限网络不可达），旧配置的 duckduckgo 读取时归一为 auto
+ */
+export type SearchProvider = 'auto' | 'bing' | 'tavily';
+
 export interface SearchConfig {
-  provider: 'duckduckgo' | 'tavily';
+  provider: SearchProvider;
   tavilyApiKey: string;
 }
 
@@ -56,7 +64,7 @@ export const DEFAULT_SETTINGS: Settings = {
     model: 'qwen2.5:3b'
   },
   search: {
-    provider: 'duckduckgo',
+    provider: 'auto',
     tavilyApiKey: ''
   },
   indexDirs: ['~/Desktop', '~/Documents', '~/Downloads'],

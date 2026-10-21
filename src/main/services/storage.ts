@@ -7,11 +7,14 @@ import {
   type FileRecord,
   type InspectionReport,
   type McpServerConfig,
+  type SearchProvider,
   type Settings,
   type SshHostConfig,
   type TodoRunRecord,
   type TodoTask
 } from '../../shared/types';
+
+const SEARCH_PROVIDERS: SearchProvider[] = ['auto', 'bing', 'tavily'];
 
 const SETTINGS_FILE = 'settings.json';
 const SESSIONS_FILE = 'sessions.json';
@@ -73,12 +76,21 @@ export class StorageService {
     const saved = this.readJson<Partial<Settings>>(SETTINGS_FILE, {});
     const rawConcurrent = Number(saved.scheduler?.maxConcurrent);
     const rawMaxSteps = Number(saved.agent?.maxSteps);
+    // 旧默认值 duckduckgo（受限网络不可用，引擎已移除）：读取时归一为 auto 并随下次保存落盘
+    const savedProvider = saved.search?.provider as SearchProvider | 'duckduckgo' | undefined;
+    const provider: SearchProvider =
+      savedProvider && savedProvider !== 'duckduckgo' && SEARCH_PROVIDERS.includes(savedProvider)
+        ? savedProvider
+        : 'auto';
     return {
       ...DEFAULT_SETTINGS,
       ...saved,
       cloud: { ...DEFAULT_SETTINGS.cloud, ...(saved.cloud ?? {}) },
       ollama: { ...DEFAULT_SETTINGS.ollama, ...(saved.ollama ?? {}) },
-      search: { ...DEFAULT_SETTINGS.search, ...(saved.search ?? {}) },
+      search: {
+        provider,
+        tavilyApiKey: saved.search?.tavilyApiKey ?? DEFAULT_SETTINGS.search.tavilyApiKey
+      },
       indexDirs: saved.indexDirs?.length ? saved.indexDirs : DEFAULT_SETTINGS.indexDirs,
       excludeGlobs: saved.excludeGlobs?.length ? saved.excludeGlobs : DEFAULT_SETTINGS.excludeGlobs,
       scheduler: {
