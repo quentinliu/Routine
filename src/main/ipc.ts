@@ -11,7 +11,16 @@ import {
 } from '../shared/types';
 import { Orchestrator, type OrchestratorEvent } from './agent/orchestrator';
 import { getSafetyGate } from './agent/safety';
+import { ToolRegistry } from './agent/tools/registry';
+import { createBrowserTools } from './agent/tools/builtin/browser';
+import { createComputerTools } from './agent/tools/builtin/computer';
+import { createFileTools } from './agent/tools/builtin/file';
+import { createSshTools } from './agent/tools/builtin/ssh';
+import { createTodoTools } from './agent/tools/builtin/todo';
+import { createWebTools } from './agent/tools/builtin/web';
 import { getRouter } from './llm/router';
+import { initMcpService } from './services/mcp/manager';
+import type { McpServerConfig } from '../shared/types';
 import { getBrowserAgentService } from './services/browser';
 import { getComputerService, COMPUTER_OPS } from './services/computer';
 import { getFileAgentService } from './services/fileAgent';
@@ -24,6 +33,7 @@ import { expandHome } from './util/paths';
 
 let mainWindow: BrowserWindow | null = null;
 let orchestrator: Orchestrator | null = null;
+let toolRegistry: ToolRegistry | null = null;
 
 export function setMainWindow(win: BrowserWindow | null): void {
   mainWindow = win;
@@ -35,16 +45,26 @@ export function sendToRenderer(channel: string, payload: unknown): void {
   }
 }
 
+function getRegistry(): ToolRegistry {
+  if (!toolRegistry) {
+    const registry = new ToolRegistry(getSafetyGate());
+    registry.register(...createFileTools(getFileAgentService()));
+    registry.register(...createComputerTools(getComputerService()));
+    registry.register(...createWebTools(getWebSearchService()));
+    registry.register(...createBrowserTools(getBrowserAgentService()));
+    registry.register(...createSshTools(getSshService()));
+    registry.register(...createTodoTools());
+    toolRegistry = registry;
+  }
+  return toolRegistry;
+}
+
 function getOrchestrator(): Orchestrator {
   if (!orchestrator) {
     orchestrator = new Orchestrator({
       router: getRouter(),
       safety: getSafetyGate(),
-      fileAgent: getFileAgentService(),
-      computer: getComputerService(),
-      web: getWebSearchService(),
-      browser: getBrowserAgentService(),
-      ssh: getSshService()
+      registry: getRegistry()
     });
   }
   return orchestrator;
@@ -61,6 +81,12 @@ function orchestratorEmit(ev: OrchestratorEvent, assistantSink: { text: string }
   switch (ev.type) {
     case 'agent-status':
       sendToRenderer(IPC.AgentStatus, ev.status);
+      break;
+    case 'trace':
+      sendToRenderer(IPC.AgentTrace, ev.event);
+      break;
+    case 'todo':
+      sendToRenderer(IPC.TodoUpdate, { sessionId: ev.sessionId, todos: ev.todos });
       break;
     case 'log':
       sendToRenderer(IPC.LogEntry, ev.entry);
@@ -292,6 +318,29 @@ export function registerIpc(): void {
     (_e, p: { id: string; command: string; options?: SshExecOptions }) =>
       getSshService().exec(p.id, p.command, p.options)
   );
+
+  const mcp = initMcpService(getRegistry());
+  mcp.setLogFn((text, level) =>
+    sendToRenderer(IPC.LogEntry, {
+      id: crypto.randomUUID(),
+      ts: Date.now(),
+      agent: 'mcp',
+      level: level ?? 'info',
+      text
+    })
+  );
+  ipcMain.handle(IPC.McpList, () => mcp.list());
+  ipcMain.handle(IPC.McpSave, (_e, p: { server: McpServerConfig }) => mcp.save(p.server));
+  ipcMain.handle(IPC.McpDelete, (_e, p: { id: string }) => mcp.remove(p.id));
+  ipcMain.handle(IPC.McpTest, (_e, p: { server: McpServerConfig }) => mcp.test(p.server));
+  ipcMain.handle(IPC.McpConnect, (_e, p: { id: string }) => mcp.connect(p.id));
+  ipcMain.handle(IPC.McpDisconnect, (_e, p: { id: string }) => mcp.disconnect(p.id));
+
+  app.on('will-quit', () => {
+    void mcp.dispose();
+  });
+
+  void mcp.autoConnect();
 
   getScheduler().bindRunner({
     runner: async (task, emitLog) => {
