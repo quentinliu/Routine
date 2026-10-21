@@ -33,7 +33,8 @@ export class OllamaProvider implements LLMProvider {
     const res = await fetch(`${this.baseURL.replace(/\/$/, '')}/api/chat`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body)
+      body: JSON.stringify(body),
+      signal: req.signal
     });
 
     if (!res.ok) {
