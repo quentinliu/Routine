@@ -260,6 +260,34 @@ test('FC 调用 todo.write 推送任务进度事件且回灌短确认', async ()
   });
 });
 
+test('orchestrator 单飞：运行中再次调用被拒绝，结束后恢复', async () => {
+  await withTmp(async () => {
+    const { registry } = makeRegistry();
+    const provider = {
+      id: 'fake:slow',
+      chatStream: async () => {
+        await new Promise((r) => setTimeout(r, 150));
+        return { content: '第一轮就完成', finishReason: 'stop' };
+      }
+    };
+    const orch = new Orchestrator({
+      router: makeRouter(provider),
+      safety: new SafetyGate(),
+      registry
+    });
+    const first = orch.handleUserMessage('ses-busy-1', '任务一', () => {});
+    await new Promise((r) => setTimeout(r, 30));
+    await assert.rejects(
+      orch.handleUserMessage('ses-busy-2', '任务二', () => {}),
+      /当前有任务正在执行/
+    );
+    const final = await first;
+    assert.strictEqual(final, '第一轮就完成');
+    const again = await orch.handleUserMessage('ses-busy-3', '任务三', () => {});
+    assert.strictEqual(again, '第一轮就完成');
+  });
+});
+
 test('maxSteps 用尽后走 digest 兜底生成回答', async () => {  await withTmp(async () => {
     const { registry } = makeRegistry();
     const toolCall = {

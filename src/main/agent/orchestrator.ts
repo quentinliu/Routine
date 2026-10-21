@@ -110,12 +110,17 @@ function isToolsUnsupportedError(err: unknown): boolean {
 export class Orchestrator {
   aborted = false;
   private abortController: AbortController | null = null;
+  private busy = false;
 
   constructor(public readonly deps: OrchestratorDeps) {}
 
   abort(): void {
     this.aborted = true;
     this.abortController?.abort();
+  }
+
+  isBusy(): boolean {
+    return this.busy;
   }
 
   private status(
@@ -263,6 +268,22 @@ export class Orchestrator {
   }
 
   async handleUserMessage(
+    sessionId: string,
+    text: string,
+    emit: (e: OrchestratorEvent) => void,
+    history?: ChatMessageLite[]
+  ): Promise<string> {
+    // 单飞：并发任务会互相破坏 aborted/abortController 状态
+    if (this.busy) throw new Error('当前有任务正在执行，请等待完成或先停止');
+    this.busy = true;
+    try {
+      return await this.runTask(sessionId, text, emit, history);
+    } finally {
+      this.busy = false;
+    }
+  }
+
+  private async runTask(
     sessionId: string,
     text: string,
     emit: (e: OrchestratorEvent) => void,
