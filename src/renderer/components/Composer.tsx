@@ -2,11 +2,13 @@ import { useRef, useState, type KeyboardEvent } from 'react';
 import { useAppStore } from '../store';
 
 export function Composer() {
-  const sending = useAppStore((s) => s.sending);
+  const runningSessionId = useAppStore((s) => s.runningSessionId);
+  const currentSessionId = useAppStore((s) => s.currentSessionId);
   const sendText = useAppStore((s) => s.sendText);
   const stopChat = useAppStore((s) => s.stopChat);
   const [text, setText] = useState('');
   const taRef = useRef<HTMLTextAreaElement>(null);
+  const runningHere = runningSessionId !== null && runningSessionId === currentSessionId;
 
   function autoResize() {
     const ta = taRef.current;
@@ -17,7 +19,7 @@ export function Composer() {
 
   function send() {
     const value = text.trim();
-    if (!value || sending) return;
+    if (!value || runningHere) return;
     setText('');
     if (taRef.current) taRef.current.style.height = 'auto';
     void sendText(value);
@@ -44,7 +46,7 @@ export function Composer() {
           }}
           onKeyDown={onKeyDown}
         />
-        {sending ? (
+        {runningHere ? (
           <button className="send-btn stop" title="停止" onClick={stopChat}>
             <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden>
               <rect x="7" y="7" width="10" height="10" rx="1.5" fill="currentColor" />
