@@ -935,3 +935,95 @@ button:disabled { opacity: 0.45; cursor: default; }
 ::-webkit-scrollbar-thumb { background: var(--border-strong); border-radius: 4px; }
 ::-webkit-scrollbar-thumb:hover { background: #3d444d; }
 ::-webkit-scrollbar-track { background: transparent; }
+
+/* ===== Agent trace timeline (A2) ===== */
+.trace-timeline {
+  margin: 4px 0 8px 44px;
+  max-width: min(720px, 100%);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.02);
+  font-size: 12px;
+  overflow: hidden;
+}
+.trace-timeline summary {
+  cursor: pointer;
+  padding: 7px 12px;
+  color: var(--text-dim);
+  user-select: none;
+}
+.trace-timeline summary:hover { color: var(--text); }
+.trace-list {
+  padding: 4px 12px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 260px;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+.trace-item {
+  line-height: 1.5;
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+}
+.trace-thought { word-break: break-word; white-space: pre-wrap; }
+.trace-thought { color: var(--text-dim); font-style: italic; white-space: pre-wrap; }
+.trace-tool { color: var(--text); }
+.trace-start { opacity: 0.75; }
+.trace-mark { flex: none; font-size: 11px; }
+.trace-ok .trace-mark { color: #3fb950; }
+.trace-err .trace-mark { color: #f85149; }
+.trace-tool-name { flex: none; font-weight: 600; font-family: var(--font-mono, monospace); }
+.trace-digest {
+  color: var(--text-dim);
+  min-width: 0;
+  word-break: break-word;
+}
+.trace-meta { flex: none; color: var(--text-dim); font-size: 11px; }
+
+/* ===== Task todo panel (T1) ===== */
+.todo-panel {
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--border);
+}
+.todo-empty {
+  color: var(--text-dim);
+  font-size: 12px;
+  line-height: 1.6;
+}
+.todo-list {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 320px;
+  overflow-y: auto;
+}
+.todo-item {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+.todo-mark { flex: none; font-size: 11px; width: 14px; text-align: center; }
+.todo-content { min-width: 0; word-break: break-word; }
+.todo-completed { color: var(--text-dim); }
+.todo-completed .todo-content { text-decoration: line-through; }
+.todo-completed .todo-mark { color: #3fb950; }
+.todo-in_progress { color: var(--text); font-weight: 500; }
+.todo-in_progress .todo-mark { color: #58a6ff; }
+.todo-pending { color: var(--text-dim); opacity: 0.75; }
+
+/* Trace 时间线窄屏适配 */
+@media (max-width: 1100px) {
+  .trace-timeline { margin-left: 24px; }
+}
+@media (max-width: 880px) {
+  .trace-timeline { margin-left: 6px; }
+}

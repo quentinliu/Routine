@@ -2,17 +2,23 @@ import { create } from 'zustand';
 import { AGENT_NAMES,
   type AgentName,
   type AgentStatus,
+  type AgentTraceEvent,
   type ChatMessage,
   type ChatSession,
   type IndexProgress,
   type LogEntry,
   type SafetyRequest,
   type Settings,
+  type TaskTodoItem,
+  type TodoUpdateEvent,
   DEFAULT_SETTINGS
 } from '../shared/types';
 import { api } from './ipc';
 
 const now = () => Date.now();
+
+const EMPTY_TRACES: AgentTraceEvent[] = [];
+const EMPTY_TODOS: TaskTodoItem[] = [];
 
 function idleAgents(): Record<AgentName, AgentStatus> {
   const map = {} as Record<AgentName, AgentStatus>;
@@ -25,6 +31,8 @@ export interface StreamingMsg {
   content: string;
 }
 
+export { EMPTY_TRACES, EMPTY_TODOS };
+
 interface AppState {
   settings: Settings;
   sessions: ChatSession[];
@@ -33,6 +41,8 @@ interface AppState {
   streamingMsg: StreamingMsg | null;
   agents: Record<AgentName, AgentStatus>;
   logs: LogEntry[];
+  tracesBySession: Record<string, AgentTraceEvent[]>;
+  todosBySession: Record<string, TaskTodoItem[]>;
   pendingSafety: SafetyRequest | null;
   indexProgress: IndexProgress | null;
   chatError: string | null;
@@ -50,6 +60,8 @@ interface AppState {
   stopChat(): void;
   setAgentStatus(s: AgentStatus): void;
   pushLog(l: LogEntry): void;
+  pushTrace(e: AgentTraceEvent): void;
+  pushTodoUpdate(e: TodoUpdateEvent): void;
   receiveDelta(sessionId: string, msgId: string, delta: string, done: boolean): void;
   setChatError(e: string | null): void;
   setPendingSafety(r: SafetyRequest | null): void;
@@ -68,6 +80,8 @@ export const useAppStore = create<AppState>()((set, get) => ({
   streamingMsg: null,
   agents: idleAgents(),
   logs: [],
+  tracesBySession: {},
+  todosBySession: {},
   pendingSafety: null,
   indexProgress: null,
   chatError: null,
@@ -135,7 +149,9 @@ export const useAppStore = create<AppState>()((set, get) => ({
       messages: [...messages, userMsg],
       sending: true,
       chatError: null,
-      streamingMsg: null
+      streamingMsg: null,
+      tracesBySession: { ...get().tracesBySession, [currentSessionId]: [] },
+      todosBySession: { ...get().todosBySession, [currentSessionId]: [] }
     });
     try {
       await api.chatSend(currentSessionId, text);
@@ -151,6 +167,32 @@ export const useAppStore = create<AppState>()((set, get) => ({
   setAgentStatus: (s) => set((state) => ({ agents: { ...state.agents, [s.agent]: s } })),
 
   pushLog: (l) => set((state) => ({ logs: [...state.logs.slice(-499), l] })),
+
+  pushTrace: (e) => {
+    set((state) => {
+      const list = state.tracesBySession[e.sessionId] ?? EMPTY_TRACES;
+      // 思考流式增量并入末条事件：每 token 一条会撑爆环形缓冲、丢早期过程
+      if (e.phase === 'thought' && list.length > 0) {
+        const last = list[list.length - 1];
+        if (last.phase === 'thought') {
+          const merged = list.slice(0, -1);
+          merged.push({ ...last, thought: (last.thought ?? '') + (e.thought ?? '') });
+          return {
+            tracesBySession: { ...state.tracesBySession, [e.sessionId]: merged.slice(-499) }
+          };
+        }
+      }
+      return {
+        tracesBySession: { ...state.tracesBySession, [e.sessionId]: [...list.slice(-499), e] }
+      };
+    });
+  },
+
+  pushTodoUpdate: (e) => {
+    set((state) => ({
+      todosBySession: { ...state.todosBySession, [e.sessionId]: e.todos }
+    }));
+  },
 
   receiveDelta: (sessionId, msgId, delta, done) => {
     const current = get().streamingMsg;

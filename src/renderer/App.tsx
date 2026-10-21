@@ -28,6 +28,8 @@ export function App() {
       ),
       window.api.onChatError((e) => state().setChatError(e.error)),
       window.api.onAgentStatus((s) => state().setAgentStatus(s)),
+      window.api.onAgentTrace((e) => state().pushTrace(e)),
+      window.api.onTodoUpdate((e) => state().pushTodoUpdate(e)),
       window.api.onLogEntry((l) => state().pushLog(l)),
       window.api.onSafetyRequest((r) => state().setPendingSafety(r)),
       window.api.onIndexProgress((p) => state().setIndexProgress(p)),
