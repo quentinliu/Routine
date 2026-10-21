@@ -1,6 +1,6 @@
 {
   "name": "routine",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Routine - 操作系统级 AI 助手（Intel Mac）",
   "main": "dist-main/main/index.js",
   "author": "liuxuebai",

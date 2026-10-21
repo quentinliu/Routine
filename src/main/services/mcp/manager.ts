@@ -18,7 +18,7 @@ import {
 } from './config';
 
 const APP_NAME = 'Routine';
-const APP_VERSION = '0.2.0';
+const APP_VERSION = '0.2.1';
 const CONNECT_TIMEOUT_MS = 15_000;
 
 interface McpEntry {

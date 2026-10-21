@@ -60,7 +60,7 @@ export function Topbar() {
           </svg>
           设置
         </button>
-        <span className="version">v0.2.0</span>
+        <span className="version">v0.2.1</span>
       </div>
     </header>
   );
