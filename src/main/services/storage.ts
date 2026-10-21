@@ -6,6 +6,7 @@ import {
   type DatasourceConfig,
   type FileRecord,
   type InspectionReport,
+  type McpServerConfig,
   type Settings,
   type SshHostConfig,
   type TodoRunRecord,
@@ -19,6 +20,7 @@ const TODOS_FILE = 'todos.json';
 const DATASOURCES_FILE = 'datasources.json';
 const INSPECTIONS_FILE = 'inspections.json';
 const SSH_HOSTS_FILE = 'ssh-hosts.json';
+const MCP_SERVERS_FILE = 'mcp-servers.json';
 
 const MAX_TODO_RUNS = 300;
 const MAX_REPORTS_PER_DATASOURCE = 200;
@@ -70,6 +72,7 @@ export class StorageService {
   loadSettings(): Settings {
     const saved = this.readJson<Partial<Settings>>(SETTINGS_FILE, {});
     const rawConcurrent = Number(saved.scheduler?.maxConcurrent);
+    const rawMaxSteps = Number(saved.agent?.maxSteps);
     return {
       ...DEFAULT_SETTINGS,
       ...saved,
@@ -83,7 +86,12 @@ export class StorageService {
           ? Math.min(8, Math.max(1, Math.floor(rawConcurrent)))
           : DEFAULT_SETTINGS.scheduler.maxConcurrent
       },
-      siteCredentials: saved.siteCredentials ?? DEFAULT_SETTINGS.siteCredentials
+      siteCredentials: saved.siteCredentials ?? DEFAULT_SETTINGS.siteCredentials,
+      agent: {
+        maxSteps: Number.isFinite(rawMaxSteps)
+          ? Math.min(30, Math.max(2, Math.floor(rawMaxSteps)))
+          : DEFAULT_SETTINGS.agent.maxSteps
+      }
     };
   }
 
@@ -172,6 +180,15 @@ export class StorageService {
 
   saveSshHosts(list: SshHostConfig[]): void {
     this.writeJson(SSH_HOSTS_FILE, list);
+  }
+
+  loadMcpServers(): McpServerConfig[] {
+    const saved = this.readJson<McpServerConfig[]>(MCP_SERVERS_FILE, []);
+    return Array.isArray(saved) ? saved : [];
+  }
+
+  saveMcpServers(list: McpServerConfig[]): void {
+    this.writeJson(MCP_SERVERS_FILE, list);
   }
 
   saveIndex(files: FileRecord[]): void {

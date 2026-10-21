@@ -26,6 +26,11 @@ export interface SchedulerConfig {
   maxConcurrent: number;
 }
 
+export interface AgentConfig {
+  /** ReAct 循环最大轮数，范围 [2, 30]（A2 契约批准 2026-10-21） */
+  maxSteps: number;
+}
+
 export interface Settings {
   providerMode: 'cloud' | 'local';
   cloud: CloudProviderConfig;
@@ -35,6 +40,7 @@ export interface Settings {
   excludeGlobs: string[];
   scheduler: SchedulerConfig;
   siteCredentials?: Record<string, SiteCredential>;
+  agent: AgentConfig;
 }
 
 // indexDirs 中的 "~" 由主进程在读取后展开为 os.homedir()
@@ -56,7 +62,8 @@ export const DEFAULT_SETTINGS: Settings = {
   indexDirs: ['~/Desktop', '~/Documents', '~/Downloads'],
   excludeGlobs: ['node_modules/**', '.git/**', 'Library/**', '*.app/**', '**/*.dmg', '**/*.zip'],
   scheduler: { maxConcurrent: 1 },
-  siteCredentials: {}
+  siteCredentials: {},
+  agent: { maxSteps: 12 }
 };
 
 export interface ChatMessage {
@@ -74,9 +81,17 @@ export interface ChatSession {
   updatedAt: number;
 }
 
-export type AgentName = 'main' | 'file' | 'computer' | 'search' | 'browser' | 'ssh';
+export type AgentName = 'main' | 'file' | 'computer' | 'search' | 'browser' | 'ssh' | 'mcp';
 
-export const AGENT_NAMES: AgentName[] = ['main', 'file', 'computer', 'search', 'browser', 'ssh'];
+export const AGENT_NAMES: AgentName[] = [
+  'main',
+  'file',
+  'computer',
+  'search',
+  'browser',
+  'ssh',
+  'mcp'
+];
 
 export const AGENT_LABELS: Record<AgentName, string> = {
   main: '主 Agent',
@@ -84,7 +99,8 @@ export const AGENT_LABELS: Record<AgentName, string> = {
   computer: '系统 Agent',
   search: '搜索 Agent',
   browser: '浏览器 Agent',
-  ssh: 'SSH Agent'
+  ssh: 'SSH Agent',
+  mcp: 'MCP'
 };
 
 export type AgentState = 'idle' | 'thinking' | 'acting' | 'waiting-approval' | 'done' | 'error';
@@ -320,4 +336,86 @@ export interface SshExecOptions {
   timeoutMs?: number;
   /** stdout+stderr 合计上限字节，默认 524288，范围 [1024, 10485760] */
   maxOutputBytes?: number;
+}
+
+// ===== Agent ReAct 循环（A2 契约批准 2026-10-21，见 CONTRACTS.md 变更记录）=====
+
+export type TracePhase = 'thought' | 'tool-start' | 'tool-end';
+
+export interface AgentTraceEvent {
+  sessionId: string;
+  msgId: string;
+  phase: TracePhase;
+  /** phase=thought：推理文本；FC 流式模式下为增量片段 */
+  thought?: string;
+  tool?: string;
+  argsDigest?: string;
+  resultDigest?: string;
+  error?: boolean;
+  durationMs?: number;
+}
+
+// ===== MCP 客户端（A3 契约批准 2026-10-21，见 CONTRACTS.md 变更记录）=====
+
+export type McpTransport = 'stdio' | 'http';
+
+export interface McpServerConfig {
+  id: string;
+  name: string;
+  enabled: boolean;
+  transport: McpTransport;
+  /** transport=stdio 时必填：可执行命令（如 npx / uvx / 绝对路径） */
+  command?: string;
+  args?: string[];
+  env?: Record<string, string>;
+  /** transport=http 时必填：Streamable HTTP 端点 URL */
+  url?: string;
+  headers?: Record<string, string>;
+  /** 该服务工具的默认风险级：medium 走安全门确认；safe 直接执行 */
+  riskDefault: 'safe' | 'medium';
+  /** 应用启动时自动连接 */
+  autoConnect: boolean;
+}
+
+export interface McpToolInfo {
+  /** 注册进工具注册表的完整名称：mcp__{server}__{tool} */
+  fullName: string;
+  /** MCP server 侧原始工具名 */
+  name: string;
+  description: string;
+  /** 工具参数 JSON Schema（映射 function calling 用） */
+  inputSchema?: Record<string, unknown>;
+}
+
+export type McpConnState = 'disconnected' | 'connecting' | 'connected' | 'error';
+
+export interface McpServerInfo {
+  config: McpServerConfig;
+  state: McpConnState;
+  error?: string;
+  tools: McpToolInfo[];
+}
+
+export interface McpTestResult {
+  ok: boolean;
+  toolCount: number;
+  tools: McpToolInfo[];
+  error?: string;
+  latencyMs: number;
+}
+
+// ===== 任务子任务清单（T1 契约批准 2026-10-21，见 CONTRACTS.md 变更记录）=====
+// 命名避开既有定时任务 TodoTask / TodoTaskStatus
+
+export type TaskTodoStatus = 'pending' | 'in_progress' | 'completed';
+
+export interface TaskTodoItem {
+  content: string;
+  status: TaskTodoStatus;
+}
+
+export interface TodoUpdateEvent {
+  sessionId: string;
+  /** 全量快照，渲染端整表替换 */
+  todos: TaskTodoItem[];
 }

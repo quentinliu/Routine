@@ -1,6 +1,7 @@
 // ===== IPC 通道常量 + preload 桥接类型（FROZEN — 修改需经编排者批准）=====
 import type {
   AgentStatus,
+  AgentTraceEvent,
   BrowserTaskResult,
   ChatDeltaEvent,
   ChatErrorEvent,
@@ -15,6 +16,9 @@ import type {
   InspectionProgressEvent,
   InspectionReport,
   LogEntry,
+  McpServerInfo,
+  McpServerConfig,
+  McpTestResult,
   SafetyRequest,
   Settings,
   SshExecOptions,
@@ -24,6 +28,7 @@ import type {
   SystemSnapshot,
   TodoRunRecord,
   TodoTask,
+  TodoUpdateEvent,
   WebSearchResult
 } from './types';
 
@@ -67,10 +72,19 @@ export const IPC = {
   SshDelete: 'ssh:delete',
   SshTest: 'ssh:test',
   SshExec: 'ssh:exec',
+  // invoke (renderer → main) — MCP 服务（A3 契约批准）
+  McpList: 'mcp:list',
+  McpSave: 'mcp:save',
+  McpDelete: 'mcp:delete',
+  McpTest: 'mcp:test',
+  McpConnect: 'mcp:connect',
+  McpDisconnect: 'mcp:disconnect',
   // events (main → renderer)
   ChatDelta: 'chat:delta',
   ChatError: 'chat:error',
   AgentStatus: 'agent:status',
+  AgentTrace: 'agent:trace',
+  TodoUpdate: 'agent:todo',
   SafetyRequest: 'safety:request',
   LogEntry: 'log:entry',
   IndexProgress: 'index:progress',
@@ -126,9 +140,18 @@ export interface RoutineApi {
   sshTest(id: string): Promise<SshTestResult>;
   sshExec(id: string, command: string, options?: SshExecOptions): Promise<SshExecResult>;
 
+  mcpList(): Promise<McpServerInfo[]>;
+  mcpSave(server: McpServerConfig): Promise<McpServerConfig>;
+  mcpDelete(id: string): Promise<void>;
+  mcpTest(server: McpServerConfig): Promise<McpTestResult>;
+  mcpConnect(id: string): Promise<McpServerInfo>;
+  mcpDisconnect(id: string): Promise<McpServerInfo>;
+
   onChatDelta(cb: (e: ChatDeltaEvent) => void): () => void;
   onChatError(cb: (e: ChatErrorEvent) => void): () => void;
   onAgentStatus(cb: (s: AgentStatus) => void): () => void;
+  onAgentTrace(cb: (e: AgentTraceEvent) => void): () => void;
+  onTodoUpdate(cb: (e: TodoUpdateEvent) => void): () => void;
   onSafetyRequest(cb: (r: SafetyRequest) => void): () => void;
   onLogEntry(cb: (l: LogEntry) => void): () => void;
   onIndexProgress(cb: (p: IndexProgress) => void): () => void;
