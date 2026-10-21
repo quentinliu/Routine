@@ -1,6 +1,6 @@
 # Routine
 
-Routine 是一个运行在 macOS（Intel x86_64）上的**操作系统级 AI 助手**桌面应用。它通过多个专职 Agent 帮你完成日常事务：文件检索、系统控制、联网搜索、浏览器自动化，并支持定时任务自动执行。
+Routine 是一个运行在 macOS（Intel x86_64）上的** AI 助手**桌面应用。它通过多个专职 Agent 帮你完成日常事务：文件检索、系统控制、联网搜索、浏览器自动化，并支持定时任务自动执行。
 
 ## ✨ 功能特性
 
@@ -8,7 +8,7 @@ Routine 是一个运行在 macOS（Intel x86_64）上的**操作系统级 AI 助
 - **主 Agent**：统一 JSON 协议编排子工具，与 LLM 供应商无关
 - **文件 Agent**：本地文件索引与全文搜索（默认索引 `~/Desktop`、`~/Documents`、`~/Downloads`）
 - **系统 Agent**：操作系统级控制（快照、亮度、暗色模式等），基于白名单操作集
-- **搜索 Agent**：联网搜索（支持 DuckDuckGo / Tavily）
+- **搜索 Agent**：联网搜索（必应免 Key 国内直连，Tavily 可选，自动回退链）
 - **浏览器 Agent**：基于 Playwright 的浏览器自动化，可用自然语言下达指令
 
 ### ☁️ LLM 双模式
@@ -103,7 +103,7 @@ npm run package
 | LLM 模式 | `cloud`（云端）或 `local`（Ollama 本地） |
 | 云端 API | baseURL / apiKey / model（任意 OpenAI 兼容接口） |
 | Ollama | baseURL（默认 `http://localhost:11434`）/ model |
-| 搜索源 | `duckduckgo`（免 key）或 `tavily`（需 API Key） |
+| 搜索源 | `auto`（默认，Tavily → 必应自动回退）、`bing`（免 key 国内直连）、`tavily`（需 API Key） |
 | 索引目录 | 文件 Agent 扫描的目录列表，支持 `~` 展开 |
 | 排除规则 | glob 模式，如 `node_modules/**`、`**/*.dmg` |
 

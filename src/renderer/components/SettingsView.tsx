@@ -230,16 +230,22 @@ export function SettingsView() {
                     <select
                       value={form.search.provider}
                       onChange={(e) =>
-                        update({ search: { ...form.search, provider: e.target.value as 'duckduckgo' | 'tavily' } })
+                        update({
+                          search: {
+                            ...form.search,
+                            provider: e.target.value as 'auto' | 'bing' | 'tavily'
+                          }
+                        })
                       }
                     >
-                      <option value="duckduckgo">DuckDuckGo（免 Key，可能限流）</option>
-                      <option value="tavily">Tavily（推荐，需 API Key）</option>
+                      <option value="auto">自动（推荐：Tavily → 必应）</option>
+                      <option value="bing">必应（免 Key，国内直连）</option>
+                      <option value="tavily">仅 Tavily（需 API Key）</option>
                     </select>
                   </label>
-                  {form.search.provider === 'tavily' && (
+                  {(form.search.provider === 'tavily' || form.search.provider === 'auto') && (
                     <label className="field">
-                      <span>Tavily API Key</span>
+                      <span>Tavily API Key{form.search.provider === 'auto' ? '（可选，自动模式下优先使用）' : ''}</span>
                       <input
                         type="password"
                         value={form.search.tavilyApiKey}
