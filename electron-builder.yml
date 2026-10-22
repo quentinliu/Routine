@@ -2,6 +2,9 @@ appId: com.routine.app
 productName: Routine
 directories:
   output: release
+extraResources:
+  - from: resources/skills
+    to: skills
 files:
   - dist-main/**
   - dist-renderer/**
