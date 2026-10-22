@@ -86,6 +86,7 @@ export const IPC = {
   SkillRead: 'skill:read',
   SkillInstall: 'skill:install',
   SkillRemove: 'skill:remove',
+  SkillPickDir: 'skill:pick-dir',
   // events (main → renderer)
   ChatDelta: 'chat:delta',
   ChatError: 'chat:error',
@@ -156,6 +157,8 @@ export interface RoutineApi {
 
   skillList(): Promise<SkillInfo[]>;
   skillRead(name: string): Promise<SkillDetail>;
+  /** 弹出原生目录选择器；取消返回 null */
+  skillPickDir(): Promise<string | null>;
   skillInstall(dir: string): Promise<SkillInfo>;
   skillRemove(name: string): Promise<void>;
 

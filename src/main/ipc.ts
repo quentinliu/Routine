@@ -1,4 +1,4 @@
-import { app, ipcMain, shell as electronShell, type BrowserWindow } from 'electron';
+import { app, dialog, ipcMain, shell as electronShell, type BrowserWindow } from 'electron';
 import fs from 'node:fs';
 import path from 'node:path';
 import { IPC } from '../shared/ipc';
@@ -384,6 +384,13 @@ export function registerIpc(): void {
   const skills = getSkillRegistry();
   ipcMain.handle(IPC.SkillList, () => skills.list());
   ipcMain.handle(IPC.SkillRead, (_e, p: { name: string }) => skills.read(p.name));
+  ipcMain.handle(IPC.SkillPickDir, async () => {
+    const result = await dialog.showOpenDialog({
+      title: '选择技能目录（内含 SKILL.md）',
+      properties: ['openDirectory']
+    });
+    return result.canceled || result.filePaths.length === 0 ? null : result.filePaths[0];
+  });
   ipcMain.handle(IPC.SkillInstall, (_e, p: { dir: string }) => skills.installFromDir(p.dir));
   ipcMain.handle(IPC.SkillRemove, (_e, p: { name: string }) => {
     skills.remove(p.name);

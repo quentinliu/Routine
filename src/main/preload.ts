@@ -49,6 +49,7 @@ const CH = {
   SkillRead: 'skill:read',
   SkillInstall: 'skill:install',
   SkillRemove: 'skill:remove',
+  SkillPickDir: 'skill:pick-dir',
   ChatDelta: 'chat:delta',
   ChatError: 'chat:error',
   AgentStatus: 'agent:status',
@@ -118,6 +119,7 @@ const api: RoutineApi = {
 
   skillList: () => ipcRenderer.invoke(CH.SkillList),
   skillRead: (name) => ipcRenderer.invoke(CH.SkillRead, { name }),
+  skillPickDir: () => ipcRenderer.invoke(CH.SkillPickDir),
   skillInstall: (dir) => ipcRenderer.invoke(CH.SkillInstall, { dir }),
   skillRemove: (name) => ipcRenderer.invoke(CH.SkillRemove, { name }),
 

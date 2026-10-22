@@ -11,6 +11,7 @@ export function SkillsSection() {
   const [list, setList] = useState<SkillInfo[]>([]);
   const [detail, setDetail] = useState<SkillDetail | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
+  const [installing, setInstalling] = useState(false);
 
   useEffect(() => {
     void refresh();
@@ -45,19 +46,17 @@ export function SkillsSection() {
   }
 
   async function install() {
-    const dir = window.prompt(
-      '输入技能目录的绝对路径（目录内需含符合 Agent Skills 规范的 SKILL.md）：'
-    );
-    if (!dir?.trim()) return;
-    setBusy('__install__');
+    setInstalling(true);
     try {
-      const saved = await api.skillInstall(dir.trim());
+      const dir = await api.skillPickDir();
+      if (!dir) return;
+      const saved = await api.skillInstall(dir);
       await refresh();
       window.alert(`技能「${saved.name}」安装成功`);
     } catch (err) {
       alert(err instanceof Error ? err.message : String(err));
     } finally {
-      setBusy(null);
+      setInstalling(false);
     }
   }
 
@@ -121,8 +120,8 @@ export function SkillsSection() {
       </div>
 
       <div className="index-row">
-        <button className="btn-secondary" disabled={busy === '__install__'} onClick={() => void install()}>
-          {busy === '__install__' ? '安装中…' : '从文件夹安装'}
+        <button className="btn-secondary" disabled={installing} onClick={() => void install()}>
+          {installing ? '安装中…' : '从文件夹安装'}
         </button>
       </div>
 
