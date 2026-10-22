@@ -21,6 +21,8 @@ import type {
   McpTestResult,
   SafetyRequest,
   Settings,
+  SkillDetail,
+  SkillInfo,
   SshExecOptions,
   SshExecResult,
   SshHostConfig,
@@ -79,6 +81,11 @@ export const IPC = {
   McpTest: 'mcp:test',
   McpConnect: 'mcp:connect',
   McpDisconnect: 'mcp:disconnect',
+  // invoke (renderer → main) — Skills（S1 契约批准，见 CONTRACTS.md 变更记录）
+  SkillList: 'skill:list',
+  SkillRead: 'skill:read',
+  SkillInstall: 'skill:install',
+  SkillRemove: 'skill:remove',
   // events (main → renderer)
   ChatDelta: 'chat:delta',
   ChatError: 'chat:error',
@@ -146,6 +153,11 @@ export interface RoutineApi {
   mcpTest(server: McpServerConfig): Promise<McpTestResult>;
   mcpConnect(id: string): Promise<McpServerInfo>;
   mcpDisconnect(id: string): Promise<McpServerInfo>;
+
+  skillList(): Promise<SkillInfo[]>;
+  skillRead(name: string): Promise<SkillDetail>;
+  skillInstall(dir: string): Promise<SkillInfo>;
+  skillRemove(name: string): Promise<void>;
 
   onChatDelta(cb: (e: ChatDeltaEvent) => void): () => void;
   onChatError(cb: (e: ChatErrorEvent) => void): () => void;

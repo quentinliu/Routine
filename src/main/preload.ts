@@ -45,6 +45,10 @@ const CH = {
   McpTest: 'mcp:test',
   McpConnect: 'mcp:connect',
   McpDisconnect: 'mcp:disconnect',
+  SkillList: 'skill:list',
+  SkillRead: 'skill:read',
+  SkillInstall: 'skill:install',
+  SkillRemove: 'skill:remove',
   ChatDelta: 'chat:delta',
   ChatError: 'chat:error',
   AgentStatus: 'agent:status',
@@ -111,6 +115,11 @@ const api: RoutineApi = {
   mcpTest: (server) => ipcRenderer.invoke(CH.McpTest, { server }),
   mcpConnect: (id) => ipcRenderer.invoke(CH.McpConnect, { id }),
   mcpDisconnect: (id) => ipcRenderer.invoke(CH.McpDisconnect, { id }),
+
+  skillList: () => ipcRenderer.invoke(CH.SkillList),
+  skillRead: (name) => ipcRenderer.invoke(CH.SkillRead, { name }),
+  skillInstall: (dir) => ipcRenderer.invoke(CH.SkillInstall, { dir }),
+  skillRemove: (name) => ipcRenderer.invoke(CH.SkillRemove, { name }),
 
   onChatDelta: (cb) => subscribe(CH.ChatDelta, cb),
   onChatError: (cb) => subscribe(CH.ChatError, cb),

@@ -9,6 +9,7 @@ import type {
 import type { LLMRouter } from '../llm/router';
 import type { LLMChatMessage, LLMResponse } from '../llm/provider';
 import { COMPUTER_OPS } from '../services/computer';
+import type { SkillRegistry } from '../skills/registry';
 import type { SafetyGate } from './safety';
 import type { ToolRegistry } from './tools/registry';
 import type { ToolContext } from './tools/types';
@@ -28,6 +29,8 @@ export interface OrchestratorDeps {
   router: LLMRouter;
   safety: SafetyGate;
   registry: ToolRegistry;
+  /** 可选：技能注册表，提供时向系统提示词注入技能目录（S1） */
+  skills?: SkillRegistry;
 }
 
 const MAX_ITERATIONS_FALLBACK = 12;
@@ -56,8 +59,15 @@ ${OP_LIST_TEXT}
 - browser.run {instruction} — 视觉浏览器 Agent，自动完成打开页面/登录（需在设置中配置站点凭据）/点击/表单/截图等网页任务
 - ssh.hosts {} — 列出已配置的 SSH 远程主机（名称、地址、是否启用）
 - ssh.exec {host, command} — 通过 SSH 在指定远程主机上执行 shell 命令，返回 stdout/stderr/退出码。host 填主机名称或 id；该命令会在远程主机上真实执行并需用户确认
+- db.list {} — 列出已配置的数据库数据源（ID、名称、类型、主机）
+- db.query {datasourceId, sql} — 对数据源执行只读 SQL（SELECT/SHOW/EXPLAIN/DESC，主进程强制守卫）
+- db.exec {datasourceId, sql, reason} — 执行写操作/管理语句（KILL 会话等），需用户确认
+- skill.run {skill, datasourceId} — 激活运维技能，返回完整操作手册；用户需求匹配技能目录中的场景时优先调用
+- skill.read {skill, path} — 读取技能的 references 附加文档
 
 ${'{MCP_TOOLS}'}
+
+${'{SKILLS}'}
 
 ${'{SSH_HOSTS}'}
 
@@ -84,14 +94,18 @@ const FC_SYSTEM = `你是 Routine 主 Agent，一个运行在 macOS 上的智能
 - 高风险系统操作（清空废纸篓、强制退出应用）与 SSH 远程命令会先征求用户确认，被拒绝时换其他思路，不要原样重试
 - 浏览器任务请把完整自然语言指令传给 browser.run，例如 "打开 github.com 截图并提取正文"
 - SSH 任务：先看下方主机清单，host 参数填主机名称；优先使用非破坏性的查看类命令
+- 数据库任务：先用 db.list 拿数据源 ID；诊断/巡检类需求优先激活对应技能（skill.run），按手册执行
 ${INJECTION_RULE}
 ${TODO_RULE}
 - 回答一律使用中文
+
+${'{SKILLS}'}
 
 ${'{SSH_HOSTS}'}`;
 
 const SSH_HOSTS_PLACEHOLDER = '{SSH_HOSTS}';
 const MCP_TOOLS_PLACEHOLDER = '{MCP_TOOLS}';
+const SKILLS_PLACEHOLDER = '{SKILLS}';
 
 const FINAL_SYSTEM =
   '你是 Routine 主 Agent。用中文直接、简洁地回答用户，合理利用已获得的工具结果。使用 Markdown 格式，重点信息可用列表呈现。';
@@ -167,6 +181,19 @@ export class Orchestrator {
       .join('\n');
   }
 
+  /** 技能目录块：仅注入 name + description（渐进披露，正文由 skill.run 激活时加载） */
+  private skillsCatalog(): string {
+    const skills = this.deps.skills?.list() ?? [];
+    if (skills.length === 0) return '（当前没有已安装的运维技能）';
+    return `运维技能（用户需求匹配以下场景时，先用 skill.run 激活对应技能）：\n${skills
+      .map((s) => {
+        const ver = s.version ? ` v${s.version}` : '';
+        const engine = s.engine ? ` [${s.engine}]` : '';
+        return `- ${s.name}${ver}${engine} — ${s.description.slice(0, 160)}`;
+      })
+      .join('\n')}`;
+  }
+
   planningSystem(): string {
     const mcpTools = this.deps.registry.all().filter((d) => d.agent === 'mcp');
     const mcpBlock =
@@ -175,14 +202,16 @@ export class Orchestrator {
             .map((d) => `- ${d.name} — ${d.description.slice(0, 200)}`)
             .join('\n')}`
         : '（当前没有已连接的 MCP 扩展工具）';
-    return PLANNING_SYSTEM.replace(MCP_TOOLS_PLACEHOLDER, mcpBlock).replace(
-      SSH_HOSTS_PLACEHOLDER,
-      this.promptContextBlocks()
-    );
+    return PLANNING_SYSTEM.replace(MCP_TOOLS_PLACEHOLDER, mcpBlock)
+      .replace(SKILLS_PLACEHOLDER, this.skillsCatalog())
+      .replace(SSH_HOSTS_PLACEHOLDER, this.promptContextBlocks());
   }
 
   private fcSystem(): string {
-    return FC_SYSTEM.replace(SSH_HOSTS_PLACEHOLDER, this.promptContextBlocks());
+    return FC_SYSTEM.replace(SKILLS_PLACEHOLDER, this.skillsCatalog()).replace(
+      SSH_HOSTS_PLACEHOLDER,
+      this.promptContextBlocks()
+    );
   }
 
   private maxSteps(): number {

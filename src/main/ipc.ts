@@ -1,9 +1,12 @@
 import { app, ipcMain, shell as electronShell, type BrowserWindow } from 'electron';
+import fs from 'node:fs';
+import path from 'node:path';
 import { IPC } from '../shared/ipc';
 import {
   AGENT_NAMES,
   type ChatMessage,
   type ChatSession,
+  type DatasourceConfig,
   type Settings,
   type SshExecOptions,
   type SshHostConfig,
@@ -14,15 +17,19 @@ import { getSafetyGate } from './agent/safety';
 import { ToolRegistry } from './agent/tools/registry';
 import { createBrowserTools } from './agent/tools/builtin/browser';
 import { createComputerTools } from './agent/tools/builtin/computer';
+import { createDbTools } from './agent/tools/builtin/db';
 import { createFileTools } from './agent/tools/builtin/file';
+import { createSkillTools } from './agent/tools/builtin/skill';
 import { createSshTools } from './agent/tools/builtin/ssh';
 import { createTodoTools } from './agent/tools/builtin/todo';
 import { createWebTools } from './agent/tools/builtin/web';
+import { SkillRegistry } from './skills/registry';
 import { getRouter } from './llm/router';
 import { initMcpService } from './services/mcp/manager';
 import type { McpServerConfig } from '../shared/types';
 import { getBrowserAgentService } from './services/browser';
 import { getComputerService, COMPUTER_OPS } from './services/computer';
+import { getDbService } from './services/db/service';
 import { getFileAgentService } from './services/fileAgent';
 import { getFileIndexService } from './services/fileIndexer';
 import { advance, getScheduler } from './services/scheduler';
@@ -34,6 +41,7 @@ import { expandHome } from './util/paths';
 let mainWindow: BrowserWindow | null = null;
 let orchestrator: Orchestrator | null = null;
 let toolRegistry: ToolRegistry | null = null;
+let skillRegistry: SkillRegistry | null = null;
 
 export function setMainWindow(win: BrowserWindow | null): void {
   mainWindow = win;
@@ -54,9 +62,38 @@ function getRegistry(): ToolRegistry {
     registry.register(...createBrowserTools(getBrowserAgentService()));
     registry.register(...createSshTools(getSshService()));
     registry.register(...createTodoTools());
+    registry.register(...createDbTools());
+    registry.register(...createSkillTools(getSkillRegistry()));
     toolRegistry = registry;
   }
   return toolRegistry;
+}
+
+function getSkillRegistry(): SkillRegistry {
+  if (!skillRegistry) {
+    const userRoot = path.join(app.getPath('userData'), 'skills');
+    skillRegistry = new SkillRegistry(builtinSkillsRoot(), userRoot, () => {
+      const overrides = getStorage().loadSettings().skillOverrides;
+      return overrides ?? {};
+    });
+  }
+  return skillRegistry;
+}
+
+/** 内置技能根：打包后位于进程资源目录，开发态回退到项目 resources/skills */
+function builtinSkillsRoot(): string {
+  const candidates = [
+    path.join(process.resourcesPath ?? '', 'skills'),
+    path.join(app.getAppPath(), 'resources', 'skills')
+  ].filter((p) => p && p !== 'skills');
+  for (const dir of candidates) {
+    try {
+      if (fs.existsSync(dir)) return dir;
+    } catch {
+      // 无效路径直接尝试下一个候选
+    }
+  }
+  return path.join(app.getAppPath(), 'resources', 'skills');
 }
 
 function getOrchestrator(): Orchestrator {
@@ -64,7 +101,8 @@ function getOrchestrator(): Orchestrator {
     orchestrator = new Orchestrator({
       router: getRouter(),
       safety: getSafetyGate(),
-      registry: getRegistry()
+      registry: getRegistry(),
+      skills: getSkillRegistry()
     });
   }
   return orchestrator;
@@ -319,6 +357,38 @@ export function registerIpc(): void {
       getSshService().exec(p.id, p.command, p.options)
   );
 
+  ipcMain.handle(IPC.DbList, () => getDbService().list());
+  ipcMain.handle(IPC.DbSave, (_e, p: { datasource: DatasourceConfig }) =>
+    getDbService().save(p.datasource)
+  );
+  ipcMain.handle(IPC.DbDelete, (_e, p: { id: string }) => {
+    getDbService().remove(p.id);
+  });
+  ipcMain.handle(IPC.DbTest, (_e, p: { id: string }) => getDbService().test(p.id));
+  ipcMain.handle(IPC.InspectionRun, async (_e, p: { datasourceId: string }) => {
+    const report = await getDbService().inspect(p.datasourceId, (line) =>
+      sendToRenderer(IPC.InspectionProgress, {
+        reportId: p.datasourceId,
+        checkId: line,
+        status: 'ok'
+      })
+    );
+    getStorage().appendInspectionReport(report);
+    return report;
+  });
+  ipcMain.handle(IPC.InspectionReports, (_e, p: { datasourceId?: string }) => {
+    const all = getStorage().loadInspections();
+    return p.datasourceId ? all.filter((r) => r.datasourceId === p.datasourceId) : all;
+  });
+
+  const skills = getSkillRegistry();
+  ipcMain.handle(IPC.SkillList, () => skills.list());
+  ipcMain.handle(IPC.SkillRead, (_e, p: { name: string }) => skills.read(p.name));
+  ipcMain.handle(IPC.SkillInstall, (_e, p: { dir: string }) => skills.installFromDir(p.dir));
+  ipcMain.handle(IPC.SkillRemove, (_e, p: { name: string }) => {
+    skills.remove(p.name);
+  });
+
   const mcp = initMcpService(getRegistry());
   mcp.setLogFn((text, level) =>
     sendToRenderer(IPC.LogEntry, {
@@ -338,6 +408,7 @@ export function registerIpc(): void {
 
   app.on('will-quit', () => {
     void mcp.dispose();
+    void getDbService().disposeAll();
   });
 
   void mcp.autoConnect();

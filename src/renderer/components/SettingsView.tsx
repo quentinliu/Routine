@@ -3,12 +3,14 @@ import type { Settings } from '../../shared/types';
 import type { JSX } from 'react';
 import { api } from '../ipc';
 import { useAppStore } from '../store';
+import { DatasourceSection } from './DatasourceSection';
 import { SshSection } from './SshSection';
 import { McpSection } from './McpSection';
+import { SkillsSection } from './SkillsSection';
 
 type HealthState = { cloud: boolean; local: boolean } | null;
 
-type CategoryId = 'models' | 'automation' | 'ssh' | 'mcp';
+type CategoryId = 'models' | 'automation' | 'db' | 'ssh' | 'skills' | 'mcp';
 
 const CATEGORY_ICONS: Record<CategoryId, JSX.Element> = {
   models: (
@@ -46,6 +48,28 @@ const CATEGORY_ICONS: Record<CategoryId, JSX.Element> = {
       />
     </svg>
   ),
+  db: (
+    <svg viewBox="0 0 24 24" width="15" height="15" aria-hidden>
+      <ellipse cx="12" cy="6" rx="7.5" ry="3" fill="none" stroke="currentColor" strokeWidth="1.6" />
+      <path
+        d="M4.5 6v6c0 1.7 3.4 3 7.5 3s7.5-1.3 7.5-3V6M4.5 12v6c0 1.7 3.4 3 7.5 3s7.5-1.3 7.5-3v-6"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.6"
+      />
+    </svg>
+  ),
+  skills: (
+    <svg viewBox="0 0 24 24" width="15" height="15" aria-hidden>
+      <path
+        d="M12 3.5l2.4 4.9 5.4.8-3.9 3.8.9 5.4-4.8-2.5-4.8 2.5.9-5.4L4.2 9.2l5.4-.8Z"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.6"
+        strokeLinejoin="round"
+      />
+    </svg>
+  ),
   mcp: (
     <svg viewBox="0 0 24 24" width="15" height="15" aria-hidden>
       <path
@@ -63,7 +87,9 @@ const CATEGORY_ICONS: Record<CategoryId, JSX.Element> = {
 const CATEGORIES: { id: CategoryId; label: string }[] = [
   { id: 'models', label: '模型服务' },
   { id: 'automation', label: '文件与自动化' },
+  { id: 'db', label: '数据源' },
   { id: 'ssh', label: 'SSH 主机' },
+  { id: 'skills', label: 'Skills' },
   { id: 'mcp', label: 'MCP 服务' }
 ];
 
@@ -350,6 +376,10 @@ export function SettingsView() {
             )}
 
             {active === 'ssh' && <SshSection />}
+
+            {active === 'db' && <DatasourceSection />}
+
+            {active === 'skills' && <SkillsSection />}
 
             {active === 'mcp' && <McpSection />}
           </div>

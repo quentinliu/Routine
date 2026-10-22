@@ -49,6 +49,8 @@ export interface Settings {
   scheduler: SchedulerConfig;
   siteCredentials?: Record<string, SiteCredential>;
   agent: AgentConfig;
+  /** 技能启用状态覆盖（key = skill name；缺省视为启用；S1 契约） */
+  skillOverrides?: Record<string, boolean>;
 }
 
 // indexDirs 中的 "~" 由主进程在读取后展开为 os.homedir()
@@ -89,7 +91,15 @@ export interface ChatSession {
   updatedAt: number;
 }
 
-export type AgentName = 'main' | 'file' | 'computer' | 'search' | 'browser' | 'ssh' | 'mcp';
+export type AgentName =
+  | 'main'
+  | 'file'
+  | 'computer'
+  | 'search'
+  | 'browser'
+  | 'ssh'
+  | 'db'
+  | 'mcp';
 
 export const AGENT_NAMES: AgentName[] = [
   'main',
@@ -98,6 +108,7 @@ export const AGENT_NAMES: AgentName[] = [
   'search',
   'browser',
   'ssh',
+  'db',
   'mcp'
 ];
 
@@ -108,6 +119,7 @@ export const AGENT_LABELS: Record<AgentName, string> = {
   search: '搜索 Agent',
   browser: '浏览器 Agent',
   ssh: 'SSH Agent',
+  db: '数据库 Agent',
   mcp: 'MCP'
 };
 
@@ -268,6 +280,7 @@ export interface DbTestResult {
   ok: boolean;
   version: string;
   latencyMs: number;
+  error?: string;
 }
 
 export type CheckStatus = 'ok' | 'warn' | 'error' | 'skipped';
@@ -427,3 +440,31 @@ export interface TodoUpdateEvent {
   /** 全量快照，渲染端整表替换 */
   todos: TaskTodoItem[];
 }
+
+// ===== Skills（S1 契约扩展，见 CONTRACTS.md 变更记录）=====
+// 格式遵循 Agent Skills 开放标准（agentskills.io）：目录 + SKILL.md（YAML frontmatter + 正文）
+
+export interface SkillInfo {
+  /** SKILL.md frontmatter name（与目录同名，全局唯一标识） */
+  name: string;
+  /** frontmatter description（≤1024 字符，注入规划提示词的目录行） */
+  description: string;
+  /** metadata.version，未声明时为空串 */
+  version: string;
+  /** 来源根：builtin = 随应用分发（只读），user = userData/skills（可删） */
+  source: 'builtin' | 'user';
+  /** 有效启用状态（settings.skillOverrides 覆盖后） */
+  enabled: boolean;
+  /** 检测到 scripts/ 目录：本机宿主无法执行，激活时按适配层规则降级为手动步骤 */
+  partial: boolean;
+  /** 引擎适配标签（约定读取 metadata.engine），供 UI 过滤展示 */
+  engine?: string;
+}
+
+export interface SkillDetail extends SkillInfo {
+  /** SKILL.md 正文（frontmatter 之后），激活时进入模型上下文的同一份内容 */
+  body: string;
+  /** 技能目录内相对于技能根的附加文件清单（references 等） */
+  files: string[];
+}
+
