@@ -1,6 +1,8 @@
 # ReAct 自主规划 + MCP 工具扩展 · 架构规划（A1–A4）
 
 > 2026-10-21 · 编排者起草。前置依赖：无（与 db-inspection 规划 §11.1 的 MCP 预研衔接，本规划将其从单特性扩展提升为编排器级能力）。
+>
+> **⚡ 状态更新（2026-10-22）**：A1（ToolRegistry）/ A2（ReAct 双策略 + 轨迹）/ A3（MCP 客户端层）已于 2026-10-21 全部落地，见 CONTRACTS.md 变更记录；2026-10-22 S1 补充：MCP http 传输增加旧版 SSE 回退、客户端版本改为从 package.json 读取、配置界面支持整行命令粘贴拆分与 mcpServers JSON 导入。**A4（打磨）待执行**：云端并行 tool_calls、per-tool 截断配置化、工具级 risk 覆盖等。
 
 ## 0. 背景与既有约束
 

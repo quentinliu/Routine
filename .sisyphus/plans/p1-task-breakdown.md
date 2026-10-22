@@ -3,6 +3,8 @@
 > 依据：`.sisyphus/plans/db-inspection-architecture.md`（已评审修订版）+ CONTRACTS.md P1 批准
 > 状态：待执行
 > 验收基线：每任务 typecheck 通过；全程禁 `as any`/`@ts-ignore`
+>
+> **⚡ 状态更新（2026-10-22）**：连接层（adapter/mysql/postgres/connection）、数据源存储与管理 UI、六个 IPC 通道接线已随 S1 提交（b46f8e6）完成；本拆解中「检查项注册表 / checks.mysql / checks.pg / inspector 完整实现 / 报告视图」仍待执行，且巡检深化职责已部分转移至内置 Skills（见 db-inspection 规划状态更新），执行前建议先按现状重新圈定范围。
 
 ## 依赖关系（DAG）
 

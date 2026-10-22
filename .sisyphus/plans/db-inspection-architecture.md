@@ -3,6 +3,13 @@
 > 状态：已评审修订（评审：GLM-5.3，Momus 标准）
 > 类型：仅架构规划，未实施
 > 适用项目：Routine（Electron 桌面 AI 助手，macOS Intel x64）
+>
+> **⚡ 状态更新（2026-10-22，S1 落地后）**
+> - **已实现**：连接层四件套（adapter/mysql/postgres/connection）、`datasources.json` 存储、§6 全部六个 IPC 通道接线、数据源管理 UI（设置页 DatasourceSection，形式为内嵌分区而非弹窗）、最小巡检（版本 + 连接水位，`service.ts#inspect`）
+> - **超出本规划**：数据库 Agent 工具 `db.list/db.query/db.exec`（本规划 §9 原排在 P3 且仅 `db.inspect`）、主进程只读 SQL 守卫、Skills 技能系统
+> - **已被取代**：§11.2 的"纯声明式 JSON 能力包 + 三源 CheckRegistry"路线 → S1 改用 **Agent Skills 开放标准**（SKILL.md + 独立 SkillRegistry + `skill.run` 激活手册模式），内置包来自 planetscale/database-skills；巡检深化由 skills 承担而非 builtin 检查项
+> - **已过时引用**：§0/§3 的 `TOOL_AGENT` 已重构为 `ToolRegistry`（见 react-mcp 规划 A1）；§11.1 MCP 客户端层已由 A3（2026-10-21）提前落地（stdio + Streamable HTTP + SSE 回退），"ESM-only 冲突"风险项已证实不存在（SDK 双构建 CJS 兼容）；头部"macOS Intel x64"已过时（0.2.2 起跨 macOS arm64 + Windows）
+> - **仍有效待办**：§5 完整检查项清单（当前仅 2 项，其余由内置 skills 承担，注册表化仍值得做）、§4 TodoTask.kind 定时巡检、safeStorage 凭据加密、CustomCheck 注册表与 §12 自进化、§10.1 docker 集成测试
 
 ## 0. 背景与既有约束
 
