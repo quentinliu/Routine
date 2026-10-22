@@ -10,6 +10,14 @@ Routine 是一个运行在 macOS 与 Windows 上的** AI 助手**桌面应用。
 - **系统 Agent**：操作系统级控制（快照、亮度、暗色模式等），基于白名单操作集
 - **搜索 Agent**：联网搜索（必应免 Key 国内直连，Tavily 可选，自动回退链）
 - **浏览器 Agent**：基于 Playwright 的浏览器自动化，可用自然语言下达指令
+- **SSH Agent**：远程主机管理与命令执行（安全门确认）
+- **数据库 Agent**：MySQL / PostgreSQL 只读诊断与（经确认的）管理操作
+
+### 🧩 Skills 技能系统
+- 遵循 **Agent Skills 开放标准**（SKILL.md），技能即数据、可独立于代码升级
+- 内置 PlanetScale 开源 **MySQL / PostgreSQL 运维技能**（慢查询、索引、锁、连接、配置体检，含 40+ 篇 references）
+- 统一管理界面：启停（按技能覆盖）、详情查看、用户技能导入/删除
+- 只读 SQL 由主进程强制守卫；写操作走安全门确认
 
 ### ☁️ LLM 双模式
 - **云端模式**：任意 OpenAI 兼容 API（默认配置为智谱 GLM）
@@ -39,6 +47,7 @@ Routine 是一个运行在 macOS 与 Windows 上的** AI 助手**桌面应用。
 | 文件监听 | chokidar |
 | 浏览器自动化 | playwright-core |
 | 打包 | electron-builder（macOS dmg / zip：x64 + arm64，Windows nsis：x64 + arm64） |
+| 技能格式 | Agent Skills 开放标准（SKILL.md），内置 PlanetScale database-skills（MIT） |
 
 ## 📁 项目结构
 
@@ -48,7 +57,8 @@ Routine/
 │   ├── main/              # Electron 主进程
 │   │   ├── llm/           # LLM 路由（云端/本地双模式）
 │   │   ├── agent/         # 编排器 + 安全门
-│   │   ├── services/      # 文件索引、系统控制、搜索、浏览器、调度器、存储
+│   │   ├── services/      # 文件索引、系统控制、搜索、浏览器、调度器、存储、数据库、MCP
+│   │   ├── skills/        # Skills 加载器与注册表（Agent Skills 开放标准）
 │   │   ├── util/          # 路径展开、shell 工具
 │   │   ├── ipc.ts         # IPC 装配
 │   │   ├── preload.ts     # 预加载脚本
@@ -110,6 +120,8 @@ npm run package:all
 | 云端 API | baseURL / apiKey / model（任意 OpenAI 兼容接口） |
 | Ollama | baseURL（默认 `http://localhost:11434`）/ model |
 | 搜索源 | `auto`（默认，Tavily → 必应自动回退）、`bing`（免 key 国内直连）、`tavily`（需 API Key） |
+| 数据源 | MySQL / PostgreSQL 连接（设置 → 数据源），供数据库 Agent 诊断使用 |
+| Skills | 技能启停（设置 → Skills），内置 MySQL/PostgreSQL 运维技能 |
 | 索引目录 | 文件 Agent 扫描的目录列表，支持 `~` 展开 |
 | 排除规则 | glob 模式，如 `node_modules/**`、`**/*.dmg` |
 
