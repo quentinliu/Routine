@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type ClipboardEvent } from 'react';
 import type { McpServerConfig, McpServerInfo, McpTestResult, McpTransport } from '../../shared/types';
 import { api } from '../ipc';
 
@@ -64,6 +64,95 @@ function parseKeyValue(text: string, sep: '=' | ':'): Record<string, string> {
   return out;
 }
 
+/** 按空白拆分命令行，双/单引号包裹的内容视为一个参数 */
+function splitCommandLine(input: string): string[] {
+  const out: string[] = [];
+  let cur = '';
+  let quote: '"' | "'" | null = null;
+  for (const ch of input) {
+    if (quote) {
+      if (ch === quote) quote = null;
+      else cur += ch;
+    } else if (ch === '"' || ch === "'") {
+      quote = ch;
+    } else if (/\s/.test(ch)) {
+      if (cur) {
+        out.push(cur);
+        cur = '';
+      }
+    } else {
+      cur += ch;
+    }
+  }
+  if (cur) out.push(cur);
+  return out;
+}
+
+interface ImportedServer {
+  name: string;
+  command?: string;
+  args?: string[];
+  env?: Record<string, string>;
+  url?: string;
+  headers?: Record<string, string>;
+}
+
+/** 解析 Claude Desktop / Cursor 的 mcpServers JSON、VS Code 的 servers JSON 或裸 server 对象 */
+function parseMcpJson(text: string): { server: ImportedServer; total: number } {
+  const raw: unknown = JSON.parse(text);
+  if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) {
+    throw new Error('JSON 顶层必须是对象');
+  }
+  const obj = raw as Record<string, unknown>;
+  let entries: Array<[string, unknown]> | null = null;
+  for (const key of ['mcpServers', 'servers']) {
+    const group = obj[key];
+    if (typeof group === 'object' && group !== null && !Array.isArray(group)) {
+      entries = Object.entries(group as Record<string, unknown>);
+      break;
+    }
+  }
+  let name = '';
+  let server: Record<string, unknown>;
+  if (entries) {
+    const first = entries[0];
+    if (!first) throw new Error('JSON 中没有可导入的服务');
+    name = String(first[0] ?? '');
+    server = (first[1] ?? {}) as Record<string, unknown>;
+  } else {
+    server = obj;
+  }
+  const command = typeof server.command === 'string' ? server.command.trim() : '';
+  const url = typeof server.url === 'string' ? server.url.trim() : '';
+  const args = Array.isArray(server.args) ? server.args.map(String) : [];
+  const pickRecord = (v: unknown): Record<string, string> => {
+    if (typeof v !== 'object' || v === null || Array.isArray(v)) return {};
+    const out: Record<string, string> = {};
+    for (const [k, val] of Object.entries(v)) out[k] = String(val);
+    return out;
+  };
+  if (!command && !url) {
+    throw new Error('JSON 缺少 command（stdio）或 url（http）字段');
+  }
+  if (!name) {
+    name = command
+      ? (args.find((a) => !a.startsWith('-') && a !== command) ?? command)
+      : new URL(url).hostname;
+  }
+  name = name.replace(/^@[^/]+\//, '').replace(/[^a-zA-Z0-9_-]/g, '-').slice(0, 64) || 'imported';
+  return {
+    server: {
+      name,
+      command: command || undefined,
+      args: args.length > 0 ? args : undefined,
+      env: pickRecord(server.env),
+      url: url || undefined,
+      headers: pickRecord(server.headers)
+    },
+    total: entries ? entries.length : 1
+  };
+}
+
 const STATE_LABEL: Record<McpServerInfo['state'], string> = {
   connected: '已连接',
   connecting: '连接中…',
@@ -78,6 +167,7 @@ export function McpSection() {
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<McpTestResult | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [importText, setImportText] = useState<string | null>(null);
 
   useEffect(() => {
     void refresh();
@@ -91,6 +181,57 @@ export function McpSection() {
 
   function update(patch: Partial<FormState>): void {
     setForm((f) => (f ? { ...f, ...patch } : f));
+  }
+
+  function applyImported(server: ImportedServer): void {
+    update({
+      name: server.name,
+      transport: server.url ? 'http' : 'stdio',
+      command: server.command ?? '',
+      argsText: (server.args ?? []).join('\n'),
+      envText: Object.entries(server.env ?? {})
+        .map(([k, v]) => `${k}=${v}`)
+        .join('\n'),
+      url: server.url ?? '',
+      headersText: Object.entries(server.headers ?? {})
+        .map(([k, v]) => `${k}: ${v}`)
+        .join('\n')
+    });
+  }
+
+  function importFromJson(): void {
+    if (!form || importText === null) return;
+    try {
+      const { server, total } = parseMcpJson(importText);
+      applyImported(server);
+      setImportText(null);
+      if (total > 1) {
+        window.alert(`已导入第 1 个服务「${server.name}」（JSON 中共 ${total} 个，其余请逐个添加）`);
+      }
+    } catch (err) {
+      window.alert(`JSON 解析失败：${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
+
+  function handleCommandPaste(e: ClipboardEvent<HTMLInputElement>): void {
+    if (!form) return;
+    const text = e.clipboardData.getData('text').trim();
+    if (!text || !/\s/.test(text)) return;
+    const parts = splitCommandLine(text);
+    if (parts.length <= 1) return;
+    if (
+      !window.confirm(
+        `检测到粘贴了完整命令行，是否自动拆分？\n\n命令：${parts[0]}\n参数：${parts.slice(1).join(' ')}\n\n（取消则原样粘贴）`
+      )
+    ) {
+      return;
+    }
+    e.preventDefault();
+    const existingArgs = form.argsText.split('\n').map((l) => l.trim()).filter(Boolean);
+    update({
+      command: parts[0],
+      argsText: [...parts.slice(1), ...existingArgs].join('\n')
+    });
   }
 
   function toConfig(form: FormState): McpServerConfig {
@@ -271,8 +412,10 @@ export function McpSection() {
                 <input
                   value={form.command}
                   onChange={(e) => update({ command: e.target.value })}
+                  onPaste={handleCommandPaste}
                   placeholder="npx"
                 />
+                <span className="field-hint">支持直接粘贴整行命令（如 npx -y xxx），将自动拆分到参数区</span>
               </label>
               <label className="field">
                 <span>命令参数（每行一个）</span>
@@ -366,6 +509,12 @@ export function McpSection() {
             <button className="btn-secondary" onClick={() => setForm(null)}>
               取消
             </button>
+            <button
+              className="btn-secondary"
+              onClick={() => setImportText(importText === null ? '' : null)}
+            >
+              {importText === null ? '从 JSON 导入' : '收起导入'}
+            </button>
             <button className="btn-secondary" disabled={testing || !form.name.trim()} onClick={() => void test()}>
               {testing ? '测试中…' : '测试连接'}
             </button>
@@ -373,6 +522,23 @@ export function McpSection() {
               {saving ? '保存中…' : '保存'}
             </button>
           </div>
+
+          {importText !== null && (
+            <div className="field">
+              <span>粘贴 MCP 配置 JSON（支持 Claude Desktop / Cursor 的 mcpServers、VS Code 的 servers 或单个 server 对象）</span>
+              <textarea
+                rows={6}
+                value={importText}
+                onChange={(e) => setImportText(e.target.value)}
+                placeholder={'{\n  "mcpServers": {\n    "filesystem": {\n      "command": "npx",\n      "args": ["-y", "@modelcontextprotocol/server-filesystem", "~/Documents"]\n    }\n  }\n}'}
+              />
+              <div className="form-actions">
+                <button className="btn-primary" disabled={!importText.trim()} onClick={importFromJson}>
+                  解析并填充
+                </button>
+              </div>
+            </div>
+          )}
 
           {testResult && (
             <div className={`ssh-test-result ${testResult.ok ? 'ok' : 'fail'}`}>

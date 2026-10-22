@@ -1,6 +1,9 @@
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
+import { SSEClientTransport } from '@modelcontextprotocol/sdk/client/sse.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
+import fs from 'node:fs';
+import path from 'node:path';
 import type {
   McpConnState,
   McpServerConfig,
@@ -18,8 +21,24 @@ import {
 } from './config';
 
 const APP_NAME = 'Routine';
-const APP_VERSION = '0.2.1';
 const CONNECT_TIMEOUT_MS = 15_000;
+
+let cachedAppVersion: string | null = null;
+
+function appVersion(): string {
+  if (cachedAppVersion === null) {
+    try {
+      const pkg = JSON.parse(
+        fs.readFileSync(path.join(__dirname, '../../../package.json'), 'utf8')
+      ) as { version?: unknown };
+      cachedAppVersion =
+        typeof pkg.version === 'string' && pkg.version ? pkg.version : '0.0.0';
+    } catch {
+      cachedAppVersion = '0.0.0';
+    }
+  }
+  return cachedAppVersion;
+}
 
 interface McpEntry {
   config: McpServerConfig;
@@ -95,20 +114,64 @@ export class McpService {
   }
 
   private buildClient(): Client {
-    return new Client({ name: APP_NAME, version: APP_VERSION });
+    return new Client({ name: APP_NAME, version: appVersion() });
   }
 
-  private buildTransport(config: McpServerConfig): StdioClientTransport | StreamableHTTPClientTransport {
-    if (config.transport === 'stdio') {
-      return new StdioClientTransport({
-        command: String(config.command ?? ''),
-        args: config.args ?? [],
-        env: config.env
-      });
-    }
-    return new StreamableHTTPClientTransport(new URL(String(config.url ?? '')), {
-      requestInit: config.headers ? { headers: config.headers } : undefined
+  private buildTransport(config: McpServerConfig): StdioClientTransport {
+    return new StdioClientTransport({
+      command: String(config.command ?? ''),
+      args: config.args ?? [],
+      env: config.env
     });
+  }
+
+  /** http 传输：优先 Streamable HTTP，失败自动回退旧版 SSE 协议（兼容早期远程 MCP） */
+  private async connectHttp(config: McpServerConfig): Promise<Client> {
+    const url = new URL(String(config.url ?? ''));
+    const headers = config.headers;
+    const fmt = (e: unknown): string => (e instanceof Error ? e.message : String(e));
+    const open = async (
+      transport: StreamableHTTPClientTransport | SSEClientTransport
+    ): Promise<Client> => {
+      const client = this.buildClient();
+      try {
+        await withTimeout(client.connect(transport), CONNECT_TIMEOUT_MS, `连接 ${config.name}`);
+        return client;
+      } catch (err) {
+        try {
+          await client.close();
+        } catch {
+          // 连接未建立时 close 可能失败，忽略
+        }
+        throw err;
+      }
+    };
+    try {
+      return await open(
+        new StreamableHTTPClientTransport(url, {
+          requestInit: headers ? { headers } : undefined
+        })
+      );
+    } catch (streamableErr) {
+      try {
+        return await open(
+          new SSEClientTransport(url, {
+            eventSourceInit: {
+              fetch: (input, init) =>
+                fetch(input, {
+                  ...init,
+                  headers: { ...(init?.headers ?? {}), ...(headers ?? {}) }
+                })
+            },
+            requestInit: headers ? { headers } : undefined
+          })
+        );
+      } catch (sseErr) {
+        throw new Error(
+          `Streamable HTTP 连接失败（${fmt(streamableErr)}）；SSE 回退亦失败（${fmt(sseErr)}）`
+        );
+      }
+    }
   }
 
   private registerServerTools(entry: McpEntry, tools: McpToolInfo[]): void {
@@ -162,10 +225,15 @@ export class McpService {
     entry.closingIntentionally = false;
     entry.state = 'connecting';
     entry.error = undefined;
-    const client = this.buildClient();
+    let client: Client | null = null;
     try {
-      const transport = this.buildTransport(entry.config);
-      await withTimeout(client.connect(transport), CONNECT_TIMEOUT_MS, `连接 ${entry.config.name}`);
+      if (entry.config.transport === 'http') {
+        client = await this.connectHttp(entry.config);
+      } else {
+        client = this.buildClient();
+        const transport = this.buildTransport(entry.config);
+        await withTimeout(client.connect(transport), CONNECT_TIMEOUT_MS, `连接 ${entry.config.name}`);
+      }
       const listed = await withTimeout(client.listTools(), CONNECT_TIMEOUT_MS, `发现工具 ${entry.config.name}`);
       const tools = summarizeMcpTools(listed.tools ?? [], entry.config);
       entry.client = client;
@@ -190,10 +258,12 @@ export class McpService {
       entry.state = 'error';
       entry.error = err instanceof Error ? err.message : String(err);
       this.unregisterServerTools(entry);
-      try {
-        await client.close();
-      } catch {
-        // 连接未建立时 close 可能失败，忽略
+      if (client) {
+        try {
+          await client.close();
+        } catch {
+          // 连接未建立时 close 可能失败，忽略
+        }
       }
       this.log(`MCP 服务「${entry.config.name}」连接失败: ${entry.error}`, 'error');
       throw err;
