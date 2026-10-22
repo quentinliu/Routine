@@ -1,6 +1,6 @@
 # Routine
 
-Routine 是一个运行在 macOS（Intel x86_64）上的** AI 助手**桌面应用。它通过多个专职 Agent 帮你完成日常事务：文件检索、系统控制、联网搜索、浏览器自动化，并支持定时任务自动执行。
+Routine 是一个运行在 macOS 与 Windows 上的** AI 助手**桌面应用。它通过多个专职 Agent 帮你完成日常事务：文件检索、系统控制、联网搜索、浏览器自动化，并支持定时任务自动执行。
 
 ## ✨ 功能特性
 
@@ -38,7 +38,7 @@ Routine 是一个运行在 macOS（Intel x86_64）上的** AI 助手**桌面应�
 | 主进程 | tsc 编译为 CJS |
 | 文件监听 | chokidar |
 | 浏览器自动化 | playwright-core |
-| 打包 | electron-builder（macOS dmg / zip，x64） |
+| 打包 | electron-builder（macOS dmg / zip：x64 + arm64，Windows nsis：x64 + arm64） |
 
 ## 📁 项目结构
 
@@ -68,7 +68,7 @@ Routine/
 
 ### 环境要求
 
-- macOS 15+（Intel x86_64）
+- macOS 15+（Intel / Apple Silicon）或 Windows 10+（x64 / ARM64）
 - Node.js v24+
 - （可选，本地模式）[Ollama](https://ollama.com/)
 
@@ -88,11 +88,17 @@ npm start
 ### 生产构建与打包
 
 ```bash
-# 编译 + 打包为 macOS x64 应用（输出到 release/）
+# 编译 + 打包 macOS 安装包（x64 + arm64，输出到 release/）
 npm run package
+
+# 编译 + 打包 Windows 安装包（x64 + arm64，可在 macOS 上交叉构建）
+npm run package:win
+
+# 一次打包全部平台
+npm run package:all
 ```
 
-产出 `release/` 目录下的 `.dmg` 与 `.zip` 安装包。
+产出 `release/` 目录下的安装包：macOS 为 `.dmg` 与 `.zip`（Intel 与 Apple Silicon 各一套），Windows 为 `.exe`（NSIS 安装程序）。
 
 ## ⚙️ 配置说明
 
@@ -107,7 +113,7 @@ npm run package
 | 索引目录 | 文件 Agent 扫描的目录列表，支持 `~` 展开 |
 | 排除规则 | glob 模式，如 `node_modules/**`、`**/*.dmg` |
 
-配置持久化在 `~/Library/Application Support/Routine/` 下的 JSON 文件中。
+配置持久化在系统用户数据目录下的 JSON 文件中（macOS：`~/Library/Application Support/Routine/`，Windows：`%APPDATA%\Routine\`）。
 
 ## 📡 IPC 架构
 

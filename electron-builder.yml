@@ -6,12 +6,23 @@ files:
   - dist-main/**
   - dist-renderer/**
   - package.json
+  # ssh2 的可选原生依赖（node-gyp），无法跨平台交叉编译，缺失时 ssh2 自动回退纯 JS 实现
+  - '!node_modules/cpu-features/**'
+# 所有运行时依赖均为纯 JS，关闭原生重编译以支持在 macOS 上交叉打包 Windows
+npmRebuild: false
 mac:
   target:
     - target: dmg
-      arch: [x64]
+      arch: [x64, arm64]
     - target: zip
-      arch: [x64]
+      arch: [x64, arm64]
   identity: null
   category: public.app-category.productivity
+win:
+  target:
+    - target: nsis
+      arch: [x64, arm64]
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
 asar: true
