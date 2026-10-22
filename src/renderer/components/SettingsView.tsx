@@ -87,7 +87,7 @@ const CATEGORY_ICONS: Record<CategoryId, JSX.Element> = {
 const CATEGORIES: { id: CategoryId; label: string }[] = [
   { id: 'models', label: '模型服务' },
   { id: 'automation', label: '文件与自动化' },
-  { id: 'db', label: '数据源' },
+  { id: 'db', label: '数据库' },
   { id: 'ssh', label: 'SSH 主机' },
   { id: 'skills', label: 'Skills' },
   { id: 'mcp', label: 'MCP 服务' }
