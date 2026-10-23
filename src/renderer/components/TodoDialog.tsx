@@ -55,6 +55,7 @@ function todayStatus(t: TodoTask, runs: TodoRunRecord[]): { text: string; cls: s
 export function TodoDialog() {
   const setTodoDialogOpen = useAppStore((s) => s.setTodoDialogOpen);
   const selectSession = useAppStore((s) => s.selectSession);
+  const requestConfirm = useAppStore((s) => s.requestConfirm);
 
   const [tasks, setTasks] = useState<TodoTask[]>([]);
   const [runs, setRuns] = useState<TodoRunRecord[]>([]);
@@ -151,8 +152,17 @@ export function TodoDialog() {
     }
   }
 
-  async function remove(task: TodoTask): Promise<void> {
-    if (!confirm(`删除定时任务「${task.title}」及其运行历史？`)) return;
+  function remove(task: TodoTask): void {
+    requestConfirm({
+      message: `删除定时任务「${task.title}」及其运行历史？`,
+      danger: true,
+      onConfirm: () => {
+        void doRemove(task);
+      }
+    });
+  }
+
+  async function doRemove(task: TodoTask): Promise<void> {
     setBusy(task.id);
     try {
       await api.todoDelete(task.id);
@@ -310,7 +320,7 @@ export function TodoDialog() {
                 <button
                   className="btn-mini danger"
                   disabled={busy === task.id}
-                  onClick={() => void remove(task)}
+                  onClick={() => remove(task)}
                 >
                   删除
                 </button>

@@ -7,6 +7,7 @@ export function Sidebar() {
   const selectSession = useAppStore((s) => s.selectSession);
   const createSession = useAppStore((s) => s.createSession);
   const removeSession = useAppStore((s) => s.removeSession);
+  const requestConfirm = useAppStore((s) => s.requestConfirm);
 
   return (
     <aside className="sidebar">
@@ -31,7 +32,13 @@ export function Sidebar() {
               title="删除会话"
               onClick={(e) => {
                 e.stopPropagation();
-                if (confirm(`删除会话「${s.title}」？`)) void removeSession(s.id);
+                requestConfirm({
+                  message: `删除会话「${s.title}」？`,
+                  danger: true,
+                  onConfirm: () => {
+                    void removeSession(s.id);
+                  }
+                });
               }}
             >
               <svg viewBox="0 0 24 24" width="12" height="12" aria-hidden>
