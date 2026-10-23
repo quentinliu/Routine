@@ -8,6 +8,7 @@ import { SettingsView } from './components/SettingsView';
 import { FileSearchDialog } from './components/FileSearchDialog';
 import { TodoDialog } from './components/TodoDialog';
 import { SafetyDialog } from './components/SafetyDialog';
+import { NoticeDialogs } from './components/NoticeDialogs';
 
 export function App() {
   const bootstrap = useAppStore((s) => s.bootstrap);
@@ -48,6 +49,7 @@ export function App() {
       {fileDialogOpen && <FileSearchDialog />}
       {todoDialogOpen && <TodoDialog />}
       {pendingSafety && <SafetyDialog request={pendingSafety} />}
+      <NoticeDialogs />
     </div>
   );
 }

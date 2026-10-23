@@ -20,6 +20,13 @@ const now = () => Date.now();
 const EMPTY_TRACES: AgentTraceEvent[] = [];
 const EMPTY_TODOS: TaskTodoItem[] = [];
 
+/** 应用内确认请求，替代原生 window.confirm（原生对话框在 Windows 上会吞掉后续键盘焦点） */
+export interface ConfirmRequest {
+  message: string;
+  danger?: boolean;
+  onConfirm(): void;
+}
+
 function idleAgents(): Record<AgentName, AgentStatus> {
   const map = {} as Record<AgentName, AgentStatus>;
   for (const a of AGENT_NAMES) map[a] = { agent: a, state: 'idle', detail: '', updatedAt: now() };
@@ -50,6 +57,8 @@ interface AppState {
   fileDialogOpen: boolean;
   todoDialogOpen: boolean;
   runningSessionId: string | null;
+  notice: string | null;
+  confirmRequest: ConfirmRequest | null;
 
   bootstrap(): Promise<void>;
   refreshSessions(): Promise<void>;
@@ -70,6 +79,9 @@ interface AppState {
   setFileDialogOpen(open: boolean): void;
   setTodoDialogOpen(open: boolean): void;
   applySettings(s: Settings): void;
+  setNotice(message: string | null): void;
+  requestConfirm(request: ConfirmRequest): void;
+  resolveConfirm(ok: boolean): void;
 }
 
 export const useAppStore = create<AppState>()((set, get) => ({
@@ -89,6 +101,8 @@ export const useAppStore = create<AppState>()((set, get) => ({
   fileDialogOpen: false,
   todoDialogOpen: false,
   runningSessionId: null,
+  notice: null,
+  confirmRequest: null,
 
   bootstrap: async () => {
     const settings = await api.settingsGet();
@@ -235,5 +249,12 @@ export const useAppStore = create<AppState>()((set, get) => ({
   setSettingsOpen: (open) => set({ settingsOpen: open }),
   setFileDialogOpen: (open) => set({ fileDialogOpen: open }),
   setTodoDialogOpen: (open) => set({ todoDialogOpen: open }),
-  applySettings: (s) => set({ settings: s })
+  applySettings: (s) => set({ settings: s }),
+  setNotice: (message) => set({ notice: message }),
+  requestConfirm: (request) => set({ confirmRequest: request }),
+  resolveConfirm: (ok) => {
+    const request = get().confirmRequest;
+    set({ confirmRequest: null });
+    if (ok && request) request.onConfirm();
+  }
 }));
