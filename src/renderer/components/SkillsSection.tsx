@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import type { SkillDetail, SkillInfo } from '../../shared/types';
 import { api } from '../ipc';
+import { useAppStore } from '../store';
 
 const SOURCE_LABEL: Record<SkillInfo['source'], string> = {
   builtin: '内置',
@@ -12,6 +13,8 @@ export function SkillsSection() {
   const [detail, setDetail] = useState<SkillDetail | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [installing, setInstalling] = useState(false);
+  const setNotice = useAppStore((s) => s.setNotice);
+  const requestConfirm = useAppStore((s) => s.requestConfirm);
 
   useEffect(() => {
     void refresh();
@@ -31,7 +34,7 @@ export function SkillsSection() {
       await api.settingsSet({ ...settings, skillOverrides: overrides });
       await refresh();
     } catch (err) {
-      alert(err instanceof Error ? err.message : String(err));
+      setNotice(err instanceof Error ? err.message : String(err));
     } finally {
       setBusy(null);
     }
@@ -41,7 +44,7 @@ export function SkillsSection() {
     try {
       setDetail(await api.skillRead(skill.name));
     } catch (err) {
-      alert(err instanceof Error ? err.message : String(err));
+      setNotice(err instanceof Error ? err.message : String(err));
     }
   }
 
@@ -52,23 +55,32 @@ export function SkillsSection() {
       if (!dir) return;
       const saved = await api.skillInstall(dir);
       await refresh();
-      window.alert(`技能「${saved.name}」安装成功`);
+      setNotice(`技能「${saved.name}」安装成功`);
     } catch (err) {
-      alert(err instanceof Error ? err.message : String(err));
+      setNotice(err instanceof Error ? err.message : String(err));
     } finally {
       setInstalling(false);
     }
   }
 
-  async function remove(skill: SkillInfo) {
-    if (!window.confirm(`删除用户技能「${skill.name}」？`)) return;
+  function remove(skill: SkillInfo): void {
+    requestConfirm({
+      message: `删除用户技能「${skill.name}」？`,
+      danger: true,
+      onConfirm: () => {
+        void doRemove(skill);
+      }
+    });
+  }
+
+  async function doRemove(skill: SkillInfo) {
     setBusy(skill.name);
     try {
       await api.skillRemove(skill.name);
       if (detail?.name === skill.name) setDetail(null);
       await refresh();
     } catch (err) {
-      alert(err instanceof Error ? err.message : String(err));
+      setNotice(err instanceof Error ? err.message : String(err));
     } finally {
       setBusy(null);
     }
@@ -110,7 +122,7 @@ export function SkillsSection() {
                 详情
               </button>
               {skill.source === 'user' && (
-                <button className="btn-mini danger" onClick={() => void remove(skill)}>
+                <button className="btn-mini danger" onClick={() => remove(skill)}>
                   删除
                 </button>
               )}

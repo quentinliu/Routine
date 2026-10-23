@@ -1,6 +1,7 @@
 import { useEffect, useState, type ClipboardEvent } from 'react';
 import type { McpServerConfig, McpServerInfo, McpTestResult, McpTransport } from '../../shared/types';
 import { api } from '../ipc';
+import { useAppStore } from '../store';
 
 type FormState = {
   id: string;
@@ -168,6 +169,8 @@ export function McpSection() {
   const [testResult, setTestResult] = useState<McpTestResult | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [importText, setImportText] = useState<string | null>(null);
+  const setNotice = useAppStore((s) => s.setNotice);
+  const requestConfirm = useAppStore((s) => s.requestConfirm);
 
   useEffect(() => {
     void refresh();
@@ -206,10 +209,10 @@ export function McpSection() {
       applyImported(server);
       setImportText(null);
       if (total > 1) {
-        window.alert(`已导入第 1 个服务「${server.name}」（JSON 中共 ${total} 个，其余请逐个添加）`);
+        setNotice(`已导入第 1 个服务「${server.name}」（JSON 中共 ${total} 个，其余请逐个添加）`);
       }
     } catch (err) {
-      window.alert(`JSON 解析失败：${err instanceof Error ? err.message : String(err)}`);
+      setNotice(`JSON 解析失败：${err instanceof Error ? err.message : String(err)}`);
     }
   }
 
@@ -219,18 +222,15 @@ export function McpSection() {
     if (!text || !/\s/.test(text)) return;
     const parts = splitCommandLine(text);
     if (parts.length <= 1) return;
-    if (
-      !window.confirm(
-        `检测到粘贴了完整命令行，是否自动拆分？\n\n命令：${parts[0]}\n参数：${parts.slice(1).join(' ')}\n\n（取消则原样粘贴）`
-      )
-    ) {
-      return;
-    }
-    e.preventDefault();
-    const existingArgs = form.argsText.split('\n').map((l) => l.trim()).filter(Boolean);
-    update({
-      command: parts[0],
-      argsText: [...parts.slice(1), ...existingArgs].join('\n')
+    requestConfirm({
+      message: `检测到粘贴了完整命令行，是否自动拆分？\n\n命令：${parts[0]}\n参数：${parts.slice(1).join(' ')}\n\n（取消则原样粘贴）`,
+      onConfirm: () => {
+        const existingArgs = form.argsText.split('\n').map((l) => l.trim()).filter(Boolean);
+        update({
+          command: parts[0],
+          argsText: [...parts.slice(1), ...existingArgs].join('\n')
+        });
+      }
     });
   }
 
@@ -253,13 +253,22 @@ export function McpSection() {
     };
   }
 
-  async function save() {
+  function save(): void {
     if (!form) return;
-    if (form.transport === 'stdio' && !window.confirm(
-      `保存并启用 stdio 服务「${form.name}」意味着 Routine 将在本机启动并长期运行外部程序「${form.command}」。\n请确认该命令来源可信。继续？`
-    )) {
+    if (form.transport === 'stdio') {
+      requestConfirm({
+        message: `保存并启用 stdio 服务「${form.name}」意味着 Routine 将在本机启动并长期运行外部程序「${form.command}」。\n请确认该命令来源可信。继续？`,
+        onConfirm: () => {
+          void doSave();
+        }
+      });
       return;
     }
+    void doSave();
+  }
+
+  async function doSave() {
+    if (!form) return;
     setSaving(true);
     try {
       await api.mcpSave(toConfig(form));
@@ -267,7 +276,7 @@ export function McpSection() {
       setForm(null);
       setTestResult(null);
     } catch (err) {
-      alert(err instanceof Error ? err.message : String(err));
+      setNotice(err instanceof Error ? err.message : String(err));
     } finally {
       setSaving(false);
     }
@@ -299,20 +308,29 @@ export function McpSection() {
       else await api.mcpConnect(server.config.id);
       await refresh();
     } catch (err) {
-      alert(err instanceof Error ? err.message : String(err));
+      setNotice(err instanceof Error ? err.message : String(err));
       await refresh();
     } finally {
       setBusyId(null);
     }
   }
 
-  async function remove(server: McpServerInfo) {
-    if (!window.confirm(`删除 MCP 服务「${server.config.name}」？连接将断开且配置移除。`)) return;
+  function remove(server: McpServerInfo): void {
+    requestConfirm({
+      message: `删除 MCP 服务「${server.config.name}」？连接将断开且配置移除。`,
+      danger: true,
+      onConfirm: () => {
+        void doRemove(server);
+      }
+    });
+  }
+
+  async function doRemove(server: McpServerInfo) {
     try {
       await api.mcpDelete(server.config.id);
       await refresh();
     } catch (err) {
-      alert(err instanceof Error ? err.message : String(err));
+      setNotice(err instanceof Error ? err.message : String(err));
     }
   }
 
@@ -356,7 +374,7 @@ export function McpSection() {
               <button className="btn-mini" onClick={() => setForm(toForm(server.config))}>
                 编辑
               </button>
-              <button className="btn-mini danger" onClick={() => void remove(server)}>
+              <button className="btn-mini danger" onClick={() => remove(server)}>
                 删除
               </button>
             </div>
@@ -518,7 +536,7 @@ export function McpSection() {
             <button className="btn-secondary" disabled={testing || !form.name.trim()} onClick={() => void test()}>
               {testing ? '测试中…' : '测试连接'}
             </button>
-            <button className="btn-primary" disabled={saving || !form.name.trim()} onClick={() => void save()}>
+            <button className="btn-primary" disabled={saving || !form.name.trim()} onClick={() => save()}>
               {saving ? '保存中…' : '保存'}
             </button>
           </div>

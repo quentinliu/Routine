@@ -106,6 +106,7 @@ export function SettingsView() {
   const [saved, setSaved] = useState(false);
   const [showKey, setShowKey] = useState(false);
   const [active, setActive] = useState<CategoryId>('models');
+  const setNotice = useAppStore((s) => s.setNotice);
 
   function update(patch: Partial<Settings>): void {
     setForm((f) => ({ ...f, ...patch }));
@@ -135,7 +136,7 @@ export function SettingsView() {
     try {
       await api.fileIndexStart();
     } catch (err) {
-      alert(err instanceof Error ? err.message : String(err));
+      setNotice(err instanceof Error ? err.message : String(err));
     } finally {
       setIndexing(false);
     }

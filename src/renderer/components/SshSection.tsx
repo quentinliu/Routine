@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { SshExecResult, SshHostConfig, SshTestResult } from '../../shared/types';
 import { api } from '../ipc';
+import { useAppStore } from '../store';
 
 type FormState = {
   id: string;
@@ -58,6 +59,8 @@ export function SshSection() {
   const [executing, setExecuting] = useState(false);
   const [execResult, setExecResult] = useState<SshExecResult | null>(null);
   const [execError, setExecError] = useState('');
+  const setNotice = useAppStore((s) => s.setNotice);
+  const requestConfirm = useAppStore((s) => s.requestConfirm);
 
   useEffect(() => {
     void api.sshList().then(setHosts).catch(() => setHosts([]));
@@ -97,7 +100,7 @@ export function SshSection() {
       setForm(null);
       if (!execHostId) setExecHostId(saved.id);
     } catch (err) {
-      alert(err instanceof Error ? err.message : String(err));
+      setNotice(err instanceof Error ? err.message : String(err));
     } finally {
       setSaving(false);
     }
@@ -118,8 +121,17 @@ export function SshSection() {
     }
   }
 
-  async function remove(host: SshHostConfig) {
-    if (!window.confirm(`删除主机「${host.name}」？`)) return;
+  function remove(host: SshHostConfig): void {
+    requestConfirm({
+      message: `删除主机「${host.name}」？`,
+      danger: true,
+      onConfirm: () => {
+        void doRemove(host);
+      }
+    });
+  }
+
+  async function doRemove(host: SshHostConfig) {
     try {
       await api.sshDelete(host.id);
       const list = await refresh();
@@ -128,7 +140,7 @@ export function SshSection() {
         setExecResult(null);
       }
     } catch (err) {
-      alert(err instanceof Error ? err.message : String(err));
+      setNotice(err instanceof Error ? err.message : String(err));
     }
   }
 
@@ -137,7 +149,7 @@ export function SshSection() {
       await api.sshSave({ ...host, enabled: !host.enabled });
       await refresh();
     } catch (err) {
-      alert(err instanceof Error ? err.message : String(err));
+      setNotice(err instanceof Error ? err.message : String(err));
     }
   }
 
@@ -180,7 +192,7 @@ export function SshSection() {
                 <button className="btn-mini" onClick={() => void toggleEnabled(host)}>
                   {host.enabled ? '禁用' : '启用'}
                 </button>
-                <button className="btn-mini danger" onClick={() => void remove(host)}>删除</button>
+                <button className="btn-mini danger" onClick={() => remove(host)}>删除</button>
               </div>
               {result && (
                 <div className={`ssh-test-result ${'error' in result ? 'fail' : 'ok'}`}>

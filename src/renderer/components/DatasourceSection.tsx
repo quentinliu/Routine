@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import type { DbTestResult, DatasourceConfig } from '../../shared/types';
 import { api } from '../ipc';
+import { useAppStore } from '../store';
 
 type FormState = {
   id: string;
@@ -55,6 +56,8 @@ export function DatasourceSection() {
   const [testResult, setTestResult] = useState<DbTestResult | null>(null);
   const [saving, setSaving] = useState(false);
   const [inspecting, setInspecting] = useState<string | null>(null);
+  const setNotice = useAppStore((s) => s.setNotice);
+  const requestConfirm = useAppStore((s) => s.requestConfirm);
 
   useEffect(() => {
     void refresh();
@@ -93,7 +96,7 @@ export function DatasourceSection() {
       setForm(null);
       setTestResult(null);
     } catch (err) {
-      alert(err instanceof Error ? err.message : String(err));
+      setNotice(err instanceof Error ? err.message : String(err));
     } finally {
       setSaving(false);
     }
@@ -119,13 +122,22 @@ export function DatasourceSection() {
     }
   }
 
-  async function remove(ds: DatasourceConfig) {
-    if (!window.confirm(`删除数据源「${ds.name}」（${ds.host}:${ds.port}）？`)) return;
+  function remove(ds: DatasourceConfig): void {
+    requestConfirm({
+      message: `删除数据源「${ds.name}」（${ds.host}:${ds.port}）？`,
+      danger: true,
+      onConfirm: () => {
+        void doRemove(ds);
+      }
+    });
+  }
+
+  async function doRemove(ds: DatasourceConfig) {
     try {
       await api.dbDelete(ds.id);
       await refresh();
     } catch (err) {
-      alert(err instanceof Error ? err.message : String(err));
+      setNotice(err instanceof Error ? err.message : String(err));
     }
   }
 
@@ -134,9 +146,9 @@ export function DatasourceSection() {
     try {
       const report = await api.inspectionRun(ds.id);
       const lines = report.results.map((r) => `${r.title}: ${r.value ?? r.status}`).join('\n');
-      window.alert(`「${ds.name}」巡检完成：\n${lines}`);
+      setNotice(`「${ds.name}」巡检完成：\n${lines}`);
     } catch (err) {
-      alert(err instanceof Error ? err.message : String(err));
+      setNotice(err instanceof Error ? err.message : String(err));
     } finally {
       setInspecting(null);
     }
@@ -172,7 +184,7 @@ export function DatasourceSection() {
               <button className="btn-mini" onClick={() => setForm(toForm(ds))}>
                 编辑
               </button>
-              <button className="btn-mini danger" onClick={() => void remove(ds)}>
+              <button className="btn-mini danger" onClick={() => remove(ds)}>
                 删除
               </button>
             </div>
