@@ -1,6 +1,8 @@
 import { useState } from 'react';
-import type { Settings } from '../../shared/types';
+import type { CloudProfile, Settings } from '../../shared/types';
 import type { JSX } from 'react';
+import type { CloudPreset } from '../lib/cloudPresets';
+import { CLOUD_PRESETS, matchPreset } from '../lib/cloudPresets';
 import { api } from '../ipc';
 import { useAppStore } from '../store';
 import { DatasourceSection } from './DatasourceSection';
@@ -95,11 +97,14 @@ const CATEGORIES: { id: CategoryId; label: string }[] = [
 
 export function SettingsView() {
   const settings = useAppStore((s) => s.settings);
+  const cloudHealth = useAppStore((s) => s.cloudHealth);
+  const refreshCloudHealth = useAppStore((s) => s.refreshCloudHealth);
   const setSettingsOpen = useAppStore((s) => s.setSettingsOpen);
   const applySettings = useAppStore((s) => s.applySettings);
   const indexProgress = useAppStore((s) => s.indexProgress);
 
   const [form, setForm] = useState<Settings>(settings);
+  const [editingProfileId, setEditingProfileId] = useState<string>(settings.cloudProfiles[0].id);
   const [health, setHealth] = useState<HealthState>(null);
   const [testing, setTesting] = useState(false);
   const [indexing, setIndexing] = useState(false);
@@ -113,11 +118,57 @@ export function SettingsView() {
     setSaved(false);
   }
 
+  const profiles = form.cloudProfiles;
+  const editingProfile = profiles.find((p) => p.id === editingProfileId) ?? profiles[0];
+  const activePreset = matchPreset(editingProfile.baseURL);
+
+  function patchProfile(id: string, patch: Partial<CloudProfile>): void {
+    setForm((f) => ({
+      ...f,
+      cloudProfiles: f.cloudProfiles.map((p) => (p.id === id ? { ...p, ...patch } : p))
+    }));
+    setSaved(false);
+  }
+
+  function applyPreset(preset: CloudPreset): void {
+    patchProfile(editingProfile.id, {
+      baseURL: preset.baseURL,
+      model: preset.models[0],
+      label: `${preset.label} · ${preset.models[0]}`
+    });
+  }
+
+  function addProfile(): void {
+    const p: CloudProfile = {
+      id: crypto.randomUUID(),
+      label: '新模型',
+      baseURL: '',
+      apiKey: '',
+      model: ''
+    };
+    setForm((f) => ({ ...f, cloudProfiles: [...f.cloudProfiles, p] }));
+    setEditingProfileId(p.id);
+    setSaved(false);
+  }
+
+  function removeProfile(id: string): void {
+    if (profiles.length <= 1) return;
+    const rest = profiles.filter((p) => p.id !== id);
+    setForm((f) => ({
+      ...f,
+      cloudProfiles: rest,
+      activeCloudId: f.activeCloudId === id ? rest[0].id : f.activeCloudId
+    }));
+    if (editingProfileId === id) setEditingProfileId(rest[0].id);
+    setSaved(false);
+  }
+
   async function save() {
     const s = await api.settingsSet(form);
     applySettings(s);
     setForm(s);
     setSaved(true);
+    void refreshCloudHealth();
     setTimeout(() => setSaved(false), 2000);
   }
 
@@ -126,6 +177,7 @@ export function SettingsView() {
     await api.settingsSet(form).catch(() => {});
     try {
       setHealth(await api.llmHealth());
+      await refreshCloudHealth();
     } finally {
       setTesting(false);
     }
@@ -198,21 +250,107 @@ export function SettingsView() {
 
                 <section>
                   <h4>云端模型（OpenAI 兼容接口）</h4>
+                  <div className="profile-list">
+                    {profiles.map((p) => (
+                      <div
+                        key={p.id}
+                        className={`profile-row ${p.id === editingProfile.id ? 'selected' : ''}`}
+                        onClick={() => setEditingProfileId(p.id)}
+                      >
+                        <span
+                          className={`health-dot ${
+                            cloudHealth[p.id] === undefined ? 'unknown' : cloudHealth[p.id] ? 'ok' : 'fail'
+                          }`}
+                          title={
+                            cloudHealth[p.id] === undefined
+                              ? '未检测'
+                              : cloudHealth[p.id]
+                                ? '可用'
+                                : '不可用'
+                          }
+                        />
+                        <span className="profile-label">{p.label || p.model || '未命名模型'}</span>
+                        <span className="profile-model">{p.model}</span>
+                        {form.activeCloudId === p.id ? (
+                          <span className="profile-active">使用中</span>
+                        ) : (
+                          <button
+                            className="btn-mini"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              update({ activeCloudId: p.id });
+                            }}
+                          >
+                            设为使用中
+                          </button>
+                        )}
+                        {profiles.length > 1 && (
+                          <button
+                            className="btn-mini"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              removeProfile(p.id);
+                            }}
+                          >
+                            删除
+                          </button>
+                        )}
+                      </div>
+                    ))}
+                    <button className="profile-add" onClick={addProfile}>
+                      + 添加模型
+                    </button>
+                  </div>
+
+                  <label className="field">
+                    <span>名称</span>
+                    <input
+                      value={editingProfile.label}
+                      onChange={(e) => patchProfile(editingProfile.id, { label: e.target.value })}
+                      placeholder="如 DeepSeek · deepseek-chat"
+                    />
+                  </label>
+                  <div className="preset-row" role="group" aria-label="云端服务预设">
+                    {CLOUD_PRESETS.map((p) => (
+                      <button
+                        key={p.id}
+                        type="button"
+                        className={`preset-chip ${activePreset?.id === p.id ? 'selected' : ''}`}
+                        onClick={() => applyPreset(p)}
+                      >
+                        {p.label}
+                      </button>
+                    ))}
+                    <span className={`preset-chip preset-chip-static ${activePreset ? '' : 'selected'}`}>
+                      自定义
+                    </span>
+                  </div>
                   <label className="field">
                     <span>Base URL</span>
                     <input
-                      value={form.cloud.baseURL}
-                      onChange={(e) => update({ cloud: { ...form.cloud, baseURL: e.target.value } })}
+                      value={editingProfile.baseURL}
+                      onChange={(e) => patchProfile(editingProfile.id, { baseURL: e.target.value })}
                       placeholder="https://open.bigmodel.cn/api/paas/v4"
                     />
                   </label>
                   <label className="field">
-                    <span>API Key</span>
+                    <span>
+                      API Key
+                      {activePreset && (
+                        <button
+                          type="button"
+                          className="link-mini"
+                          onClick={() => void api.openExternal(activePreset.keyUrl)}
+                        >
+                          获取 {activePreset.label} API Key ↗
+                        </button>
+                      )}
+                    </span>
                     <div className="key-row">
                       <input
                         type={showKey ? 'text' : 'password'}
-                        value={form.cloud.apiKey}
-                        onChange={(e) => update({ cloud: { ...form.cloud, apiKey: e.target.value } })}
+                        value={editingProfile.apiKey}
+                        onChange={(e) => patchProfile(editingProfile.id, { apiKey: e.target.value })}
                         placeholder="sk-..."
                       />
                       <button className="btn-mini" onClick={() => setShowKey((v) => !v)}>
@@ -223,10 +361,16 @@ export function SettingsView() {
                   <label className="field">
                     <span>模型</span>
                     <input
-                      value={form.cloud.model}
-                      onChange={(e) => update({ cloud: { ...form.cloud, model: e.target.value } })}
-                      placeholder="glm-4.6"
+                      value={editingProfile.model}
+                      onChange={(e) => patchProfile(editingProfile.id, { model: e.target.value })}
+                      list="cloud-model-options"
+                      placeholder={activePreset?.models[0] ?? 'glm-4.6'}
                     />
+                    <datalist id="cloud-model-options">
+                      {(activePreset?.models ?? []).map((m) => (
+                        <option key={m} value={m} />
+                      ))}
+                    </datalist>
                   </label>
                 </section>
 
@@ -293,7 +437,7 @@ export function SettingsView() {
                     </button>
                     {health && (
                       <span className="health-report">
-                        云端 {health.cloud ? '✓ 可用' : '✗ 不可用'} · 本地 {health.local ? '✓ 可用' : '✗ 不可用'}
+                        当前模型 {health.cloud ? '✓ 可用' : '✗ 不可用'} · 本地 {health.local ? '✓ 可用' : '✗ 不可用'}
                       </span>
                     )}
                   </div>

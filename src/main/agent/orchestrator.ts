@@ -340,10 +340,11 @@ export class Orchestrator {
     let strategy = this.pickStrategy();
     const failState = { key: null as string | null, count: 0 };
     let finalText: string | null = null;
+    // 任务级锁定模型：单次任务全程使用同一档案，任务失败/结束后方可切换
+    const provider = await this.deps.router.getActive();
 
     try {
       for (let round = 0; round < steps && !this.aborted; round++) {
-        const provider = await this.deps.router.getActive();
         this.status(emit, 'main', 'thinking', `规划第 ${round + 1} 轮`);
 
       let roundDeltaEmitted = false;
@@ -420,7 +421,6 @@ export class Orchestrator {
 
       if (!finalText) {
         this.status(emit, 'main', 'thinking', '正在生成回答');
-        const provider = await this.deps.router.getActive();
         const digest = messages
           .filter(
             (m) =>

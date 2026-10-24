@@ -6,6 +6,12 @@ export interface CloudProviderConfig {
   model: string;
 }
 
+// 云端模型档案：支持多配置与主界面切换；旧单配置 cloud 读取时迁移为单条 profile（M1 契约批准 2026-10-24）
+export interface CloudProfile extends CloudProviderConfig {
+  id: string;
+  label: string;
+}
+
 export interface OllamaConfig {
   baseURL: string;
   model: string;
@@ -41,7 +47,10 @@ export interface AgentConfig {
 
 export interface Settings {
   providerMode: 'cloud' | 'local';
-  cloud: CloudProviderConfig;
+  /** 云端模型档案列表（≥1 条）；activeCloudId 失效时由主进程归一为首条 */
+  cloudProfiles: CloudProfile[];
+  /** 主界面当前使用的云端 profile id */
+  activeCloudId: string;
   ollama: OllamaConfig;
   search: SearchConfig;
   indexDirs: string[];
@@ -54,13 +63,18 @@ export interface Settings {
 }
 
 // indexDirs 中的 "~" 由主进程在读取后展开为 os.homedir()
+const DEFAULT_CLOUD_PROFILE: CloudProfile = {
+  id: 'default',
+  label: '智谱 GLM · glm-4.6',
+  baseURL: 'https://open.bigmodel.cn/api/paas/v4',
+  apiKey: '',
+  model: 'glm-4.6'
+};
+
 export const DEFAULT_SETTINGS: Settings = {
   providerMode: 'cloud',
-  cloud: {
-    baseURL: 'https://open.bigmodel.cn/api/paas/v4',
-    apiKey: '',
-    model: 'glm-4.6'
-  },
+  cloudProfiles: [DEFAULT_CLOUD_PROFILE],
+  activeCloudId: DEFAULT_CLOUD_PROFILE.id,
   ollama: {
     baseURL: 'http://localhost:11434',
     model: 'qwen2.5:3b'

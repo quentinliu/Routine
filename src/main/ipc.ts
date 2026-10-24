@@ -250,6 +250,8 @@ export function registerIpc(): void {
 
   ipcMain.handle(IPC.LlmHealth, () => getRouter().checkHealth());
 
+  ipcMain.handle(IPC.LlmHealthClouds, () => getRouter().healthClouds());
+
   ipcMain.handle(IPC.FileSearch, (_e, p: { query: string; limit?: number }) =>
     getFileAgentService().searchFiles(p.query, p.limit)
   );

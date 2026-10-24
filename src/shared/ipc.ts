@@ -55,6 +55,8 @@ export const IPC = {
   BrowserRun: 'browser:run',
   BrowserAvailable: 'browser:available',
   LlmHealth: 'llm:health',
+  // 云端模型档案逐个可用性检测（M1 契约批准 2026-10-24，见 CONTRACTS.md 变更记录）
+  LlmHealthClouds: 'llm:health-clouds',
   OpenExternal: 'app:open-external',
   TodoList: 'todo:list',
   TodoSave: 'todo:save',
@@ -129,6 +131,8 @@ export interface RoutineApi {
   browserRun(instruction: string): Promise<BrowserTaskResult>;
   browserAvailable(): Promise<boolean>;
   llmHealth(): Promise<LlmHealth>;
+  /** 逐个探测全部云端档案可用性（key = profile.id）；不含本地 Ollama */
+  llmHealthClouds(): Promise<Record<string, boolean>>;
   openExternal(url: string): Promise<void>;
   todoList(): Promise<{ tasks: TodoTask[]; runs: TodoRunRecord[] }>;
   todoSave(task: TodoTask): Promise<TodoTask>;

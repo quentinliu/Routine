@@ -1,8 +1,11 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { randomUUID } from 'node:crypto';
 import {
   DEFAULT_SETTINGS,
   type ChatSession,
+  type CloudProfile,
+  type CloudProviderConfig,
   type DatasourceConfig,
   type FileRecord,
   type InspectionReport,
@@ -73,7 +76,11 @@ export class StorageService {
   }
 
   loadSettings(): Settings {
-    const saved = this.readJson<Partial<Settings>>(SETTINGS_FILE, {});
+    // cloud 为 M1 前的旧字段，仅在迁移时读取
+    const saved = this.readJson<Partial<Settings> & { cloud?: CloudProviderConfig }>(
+      SETTINGS_FILE,
+      {}
+    );
     const rawConcurrent = Number(saved.scheduler?.maxConcurrent);
     const rawMaxSteps = Number(saved.agent?.maxSteps);
     // 旧默认值 duckduckgo（受限网络不可用，引擎已移除）：读取时归一为 auto 并随下次保存落盘
@@ -82,10 +89,33 @@ export class StorageService {
       savedProvider && savedProvider !== 'duckduckgo' && SEARCH_PROVIDERS.includes(savedProvider)
         ? savedProvider
         : 'auto';
+    // M1：旧单配置 cloud 读取时包装为 cloudProfiles 首条（label 取模型名），下次保存落盘
+    const legacy = saved.cloud;
+    const migrated: CloudProfile[] = legacy
+      ? [
+          {
+            id: randomUUID(),
+            label: legacy.model || '云端模型',
+            baseURL: legacy.baseURL || DEFAULT_SETTINGS.cloudProfiles[0].baseURL,
+            apiKey: legacy.apiKey || '',
+            model: legacy.model || DEFAULT_SETTINGS.cloudProfiles[0].model
+          }
+        ]
+      : [];
+    const cloudProfiles =
+      saved.cloudProfiles && saved.cloudProfiles.length > 0
+        ? saved.cloudProfiles
+        : migrated.length > 0
+          ? migrated
+          : [DEFAULT_SETTINGS.cloudProfiles[0]];
+    const activeCloudId = cloudProfiles.some((p) => p.id === saved.activeCloudId)
+      ? (saved.activeCloudId as string)
+      : cloudProfiles[0].id;
     return {
       ...DEFAULT_SETTINGS,
       ...saved,
-      cloud: { ...DEFAULT_SETTINGS.cloud, ...(saved.cloud ?? {}) },
+      cloudProfiles,
+      activeCloudId,
       ollama: { ...DEFAULT_SETTINGS.ollama, ...(saved.ollama ?? {}) },
       search: {
         provider,

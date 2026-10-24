@@ -42,6 +42,8 @@ export { EMPTY_TRACES, EMPTY_TODOS };
 
 interface AppState {
   settings: Settings;
+  /** 云端档案可用性（key = profile.id）；undefined = 未测。失败时保留上次结果 */
+  cloudHealth: Record<string, boolean>;
   sessions: ChatSession[];
   currentSessionId: string;
   messages: ChatMessage[];
@@ -61,6 +63,8 @@ interface AppState {
   confirmRequest: ConfirmRequest | null;
 
   bootstrap(): Promise<void>;
+  refreshCloudHealth(): Promise<void>;
+  switchCloud(id: string): Promise<void>;
   refreshSessions(): Promise<void>;
   selectSession(id: string): Promise<void>;
   createSession(): Promise<void>;
@@ -86,6 +90,7 @@ interface AppState {
 
 export const useAppStore = create<AppState>()((set, get) => ({
   settings: DEFAULT_SETTINGS,
+  cloudHealth: {},
   sessions: [],
   currentSessionId: '',
   messages: [],
@@ -107,6 +112,7 @@ export const useAppStore = create<AppState>()((set, get) => ({
   bootstrap: async () => {
     const settings = await api.settingsGet();
     set({ settings });
+    void get().refreshCloudHealth();
     let sessions = await api.sessionsList();
     if (sessions.length === 0) {
       await api.sessionsNew();
@@ -114,6 +120,19 @@ export const useAppStore = create<AppState>()((set, get) => ({
     }
     const current = sessions[0];
     set({ sessions, currentSessionId: current.id, messages: current.messages });
+  },
+
+  refreshCloudHealth: async () => {
+    try {
+      set({ cloudHealth: await api.llmHealthClouds() });
+    } catch {
+      // 探测失败（如主进程忙）保留上次结果，状态徽标按未测/旧值展示
+    }
+  },
+
+  switchCloud: async (id) => {
+    const s = await api.settingsSet({ ...get().settings, activeCloudId: id });
+    set({ settings: s });
   },
 
   refreshSessions: async () => {
