@@ -12,6 +12,7 @@
 > - 2026-10-21 · T1 契约扩展（任务子任务清单），编排者已批准，规划见 `.sisyphus/plans/task-todo-panel.md`：`src/shared/types.ts` 追加 `TaskTodoStatus` / `TaskTodoItem` / `TodoUpdateEvent`（全量快照语义，命名避开定时任务 TodoTask）；`src/shared/ipc.ts` 追加事件通道 `agent:todo` 与 `RoutineApi.onTodoUpdate`（preload 同步追加）；新增内置工具 `todo.write`（safe，`ToolContext` 追加 `sessionId`）；渲染层右侧面板由 Agent 卡片改为任务进度清单（`TaskTodoPanel`，`agent:status` 事件协议保留）
 > - 2026-10-21 · T2 契约扩展（联网搜索引擎重构），编排者已批准：`SearchConfig.provider` 枚举改为 `SearchProvider = 'auto' | 'bing' | 'tavily'`（默认 `auto` = Tavily(配置 Key 时) → 必应 自动回退链，引擎请求 8-12s 显式超时，进程内记忆上次成功引擎）；**DuckDuckGo 引擎移除**（受限网络不可达），旧配置中的 `duckduckgo` 读取时归一为 `auto`；`search:web` 通道与 `WebSearchResult` 结构不变；失败错误信息指名各引擎端点，便于定位网络问题
 > - 2026-10-22 · S1 契约扩展（数据库 Agent + Skills 技能系统），编排者已批准：`AgentName` 追加 `'db'`（`AGENT_NAMES` / `AGENT_LABELS` 同步）；新增内置工具 `db.list {}`（safe）/ `db.query {datasourceId, sql}`（safe，主进程强制只读守卫：首词白名单 SELECT/SHOW/EXPLAIN/DESC + 单语句 + FOR UPDATE / LOCK IN SHARE MODE / INTO OUTFILE / sleep 拒绝）/ `db.exec {datasourceId, sql, reason}`（medium，走安全门确认）；主进程新增 `src/main/services/db/service.ts`（连接按 datasourceId 缓存，app `will-quit` 统一释放）并接通 P1 已声明的 `db:list` / `db:save` / `db:delete` / `db:test` / `inspection:run` / `inspection:reports` 六个通道；`Settings` 追加 `skillOverrides?: Record<string, boolean>`（缺省启用，旧配置自动兼容）；技能遵循 Agent Skills 开放标准（agentskills.io，目录 + SKILL.md），内置根 `resources/skills/`（electron-builder `extraResources` 打包，当前为 planetscale/database-skills 的 mysql/postgres，MIT）、用户根 `userData/skills/`（同名时用户覆盖内置），新增 `src/main/skills/**`（loader/registry）与内置工具 `skill.run {skill, datasourceId}`（safe，返回正文 + Routine 环境适配头，正文不常驻提示词、目录（name+description）经 `SKILLS_PLACEHOLDER` 注入双策略系统提示词）与 `skill.read {skill, path}`（safe，限技能目录内普通文件，拒绝路径穿越）；`src/shared/types.ts` 追加 `SkillInfo` / `SkillDetail`；`src/shared/ipc.ts` 追加 `skill:list` / `skill:read` / `skill:install` / `skill:remove` 通道与对应 `RoutineApi` 方法（preload 本地 CH 表同步追加，通道字符串逐字一致）；`OrchestratorDeps` 追加可选 `skills?: SkillRegistry`；主进程新增依赖 `yaml`（纯 JS，CJS 兼容）
+> - 2026-10-24 · M1 契约变更（多云端模型 + 主界面切换），编排者已批准：`Settings.cloud: CloudProviderConfig` **替换为** `cloudProfiles: CloudProfile[]`（≥1 条）+ `activeCloudId: string`，`CloudProfile = CloudProviderConfig & {id, label}`；旧单配置 `cloud` 读取时包装为单条 profile（label 取模型名，id 随机生成），`activeCloudId` 失效归一为首条，下次保存落盘（storage.ts 读取时迁移，同 duckduckgo 先例）；`src/shared/ipc.ts` 追加 `llm:health-clouds` 通道与 `RoutineApi.llmHealthClouds`（返回 `Record<profileId, boolean>`，逐档案并行探测，不含本地）；`llm:health` 语义微调：`cloud` 字段=当前 active 档案可用性；LLM 路由 `getActive()` 按 `activeCloudId` 解析档案（失效回退首条）；编排器 `getActive()` 上提出 ReAct 循环——**单次任务全程锁定同一模型，任务失败/结束后方可切换**；渲染层 Topbar 增模型胶囊下拉（显示各档案健康徽标，软门控：失败仍可选仅标红），设置页云端模型区改为档案列表（增删改 + 设为使用中 + 逐档案健康圆点），模型候选沿用 datalist（选择 + 手输）
 
 ## 目录所有权
 
@@ -47,7 +48,8 @@ invoke（renderer→main，参数为对象）：
 | `search:web` | `{query, maxResults?}` | `WebSearchResult[]` |
 | `browser:run` | `{instruction}` | `BrowserTaskResult` |
 | `browser:available` | `{}` | `boolean` |
-| `llm:health` | `{}` | `{cloud, local}` |
+| `llm:health` | `{}` | `{cloud, local}`（cloud = 当前 active 档案） |
+| `llm:health-clouds` | `{}` | `Record<profileId, boolean>`（逐档案并行探测） |
 | `app:open-external` | `{url}` | `void` |
 | `db:list` | `{}` | `DatasourceConfig[]` |
 | `db:save` | `{datasource}` | `DatasourceConfig` |
