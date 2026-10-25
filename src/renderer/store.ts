@@ -14,6 +14,7 @@ import { AGENT_NAMES,
   DEFAULT_SETTINGS
 } from '../shared/types';
 import { api } from './ipc';
+import { setThemeMode } from './theme';
 
 const now = () => Date.now();
 
@@ -58,6 +59,11 @@ interface AppState {
   settingsOpen: boolean;
   fileDialogOpen: boolean;
   todoDialogOpen: boolean;
+  dbWorkbenchOpen: boolean;
+  /** 打开工作台时预设的数据源（缺省取列表首条） */
+  dbWorkbenchDatasourceId: string | null;
+  /** 待写入 Composer 的草稿（工作台「在对话中诊断」预填） */
+  composerDraft: string;
   runningSessionId: string | null;
   notice: string | null;
   confirmRequest: ConfirmRequest | null;
@@ -82,6 +88,10 @@ interface AppState {
   setSettingsOpen(open: boolean): void;
   setFileDialogOpen(open: boolean): void;
   setTodoDialogOpen(open: boolean): void;
+  openDbWorkbench(datasourceId?: string): void;
+  closeDbWorkbench(): void;
+  prefillComposer(text: string): void;
+  consumeComposerDraft(): void;
   applySettings(s: Settings): void;
   setNotice(message: string | null): void;
   requestConfirm(request: ConfirmRequest): void;
@@ -105,12 +115,16 @@ export const useAppStore = create<AppState>()((set, get) => ({
   settingsOpen: false,
   fileDialogOpen: false,
   todoDialogOpen: false,
+  dbWorkbenchOpen: false,
+  dbWorkbenchDatasourceId: null,
+  composerDraft: '',
   runningSessionId: null,
   notice: null,
   confirmRequest: null,
 
   bootstrap: async () => {
     const settings = await api.settingsGet();
+    setThemeMode(settings.appearance?.theme ?? 'system');
     set({ settings });
     void get().refreshCloudHealth();
     let sessions = await api.sessionsList();
@@ -132,7 +146,7 @@ export const useAppStore = create<AppState>()((set, get) => ({
 
   switchCloud: async (id) => {
     const s = await api.settingsSet({ ...get().settings, activeCloudId: id });
-    set({ settings: s });
+    get().applySettings(s);
   },
 
   refreshSessions: async () => {
@@ -268,7 +282,20 @@ export const useAppStore = create<AppState>()((set, get) => ({
   setSettingsOpen: (open) => set({ settingsOpen: open }),
   setFileDialogOpen: (open) => set({ fileDialogOpen: open }),
   setTodoDialogOpen: (open) => set({ todoDialogOpen: open }),
-  applySettings: (s) => set({ settings: s }),
+  // 工作台与设置同为弹窗：打开工作台时先收起设置，避免双层遮罩
+  openDbWorkbench: (datasourceId) =>
+    set({
+      dbWorkbenchOpen: true,
+      dbWorkbenchDatasourceId: datasourceId ?? null,
+      settingsOpen: false
+    }),
+  closeDbWorkbench: () => set({ dbWorkbenchOpen: false }),
+  prefillComposer: (text) => set({ composerDraft: text }),
+  consumeComposerDraft: () => set({ composerDraft: '' }),
+  applySettings: (s) => {
+    setThemeMode(s.appearance?.theme ?? 'system');
+    set({ settings: s });
+  },
   setNotice: (message) => set({ notice: message }),
   requestConfirm: (request) => set({ confirmRequest: request }),
   resolveConfirm: (ok) => {

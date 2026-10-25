@@ -1,7 +1,13 @@
 import { DatabaseSync } from 'node:sqlite';
 import fs from 'node:fs';
 import path from 'node:path';
-import type { DailyPoint, InspectionReport, InspectionTrend } from '../../shared/types';
+import type {
+  CheckSeriesPoint,
+  CheckTrendRow,
+  DailyPoint,
+  InspectionReport,
+  InspectionTrend
+} from '../../shared/types';
 
 const DB_FILE = 'inspections.db';
 const LEGACY_JSON = 'inspections.json';
@@ -97,15 +103,22 @@ export class InspectionStore {
     this.prune();
   }
 
-  listReports(datasourceId?: string, limit = 10000): InspectionReport[] {
+  listReports(datasourceId?: string, limit = 10000, before?: number): InspectionReport[] {
+    const clauses: string[] = [];
+    const params: Array<string | number> = [];
+    if (datasourceId) {
+      clauses.push('datasource_id = ?');
+      params.push(datasourceId);
+    }
+    if (before !== undefined) {
+      clauses.push('started_at < ?');
+      params.push(before);
+    }
     const sql = `SELECT id, datasource_id, datasource_name, started_at, finished_at, ok, server_version, results_json
-                 FROM inspection_reports ${
-                   datasourceId ? 'WHERE datasource_id = ?' : ''
-                 } ORDER BY started_at DESC LIMIT ?`;
+                 FROM inspection_reports ${clauses.length > 0 ? `WHERE ${clauses.join(' AND ')}` : ''}
+                 ORDER BY started_at DESC LIMIT ?`;
     const stmt = this.db.prepare(sql);
-    const rows = (
-      datasourceId ? stmt.all(datasourceId, limit) : stmt.all(limit)
-    ) as Array<Record<string, unknown>>;
+    const rows = stmt.all(...params, limit) as Array<Record<string, unknown>>;
     return rows.map((r) => ({
       id: String(r.id),
       datasourceId: String(r.datasource_id),
@@ -158,6 +171,90 @@ export class InspectionStore {
       )
       .get(datasourceId, sinceMs, checkId) as { n: number };
     return Number(row.n);
+  }
+
+  /**
+   * 检查项通过率聚合（M4）：窗口内每个 checkId 的出现次数/失败次数/末次状态。
+   * 末次状态取窗口内最近一次“包含该检查项”的报告——最新报告可能未覆盖全部检查项，
+   * 若只看最近一次报告会把缺失项误判为 ok。
+   */
+  checkTrend(datasourceId: string, days: number): CheckTrendRow[] {
+    const now = Date.now();
+    const since = now - days * 86400_000;
+    const rows = this.db
+      .prepare(
+        `SELECT json_extract(je.value, '$.checkId') AS checkId,
+                MAX(json_extract(je.value, '$.title')) AS title,
+                COUNT(*) AS total,
+                SUM(CASE WHEN json_extract(je.value, '$.status') IN ('warn','error') THEN 1 ELSE 0 END) AS fails,
+                SUM(CASE WHEN json_extract(je.value, '$.status') = 'skipped' THEN 1 ELSE 0 END) AS skipped
+         FROM inspection_reports r, json_each(r.results_json) je
+         WHERE r.datasource_id = ? AND r.started_at >= ?
+           AND json_extract(je.value, '$.checkId') IS NOT NULL
+         GROUP BY json_extract(je.value, '$.checkId')
+         ORDER BY fails DESC, checkId`
+      )
+      .all(datasourceId, since) as Array<Record<string, unknown>>;
+
+    const statusRows = this.db
+      .prepare(
+        `SELECT json_extract(je.value, '$.checkId') AS checkId,
+                json_extract(je.value, '$.status') AS status
+         FROM inspection_reports r, json_each(r.results_json) je
+         WHERE r.datasource_id = ? AND r.started_at >= ?
+           AND json_extract(je.value, '$.checkId') IS NOT NULL
+         ORDER BY r.started_at DESC`
+      )
+      .all(datasourceId, since) as Array<Record<string, unknown>>;
+    const lastStatus = new Map<string, CheckTrendRow['lastStatus']>();
+    for (const row of statusRows) {
+      const id = String(row.checkId);
+      if (!lastStatus.has(id)) lastStatus.set(id, row.status as CheckTrendRow['lastStatus']);
+    }
+
+    const recentRows = this.db
+      .prepare(
+        `SELECT json_extract(je.value, '$.checkId') AS checkId,
+                SUM(CASE WHEN json_extract(je.value, '$.status') IN ('warn','error') THEN 1 ELSE 0 END) AS fails
+         FROM inspection_reports r, json_each(r.results_json) je
+         WHERE r.datasource_id = ? AND r.started_at >= ?
+           AND json_extract(je.value, '$.checkId') IS NOT NULL
+         GROUP BY json_extract(je.value, '$.checkId')`
+      )
+      .all(datasourceId, now - 7 * 86400_000) as Array<Record<string, unknown>>;
+    const recentFails = new Map<string, number>();
+    for (const row of recentRows) recentFails.set(String(row.checkId), Number(row.fails));
+
+    return rows.map((r) => ({
+      checkId: String(r.checkId),
+      title: String(r.title ?? r.checkId),
+      total: Number(r.total),
+      fails: Number(r.fails),
+      skipped: Number(r.skipped),
+      recentFails7d: recentFails.get(String(r.checkId)) ?? 0,
+      lastStatus: lastStatus.get(String(r.checkId)) ?? 'ok'
+    }));
+  }
+
+  /** 单检查项逐日序列（M4）：工作台行下钻用，按本地日期聚合 */
+  checkSeries(datasourceId: string, checkId: string, days: number): CheckSeriesPoint[] {
+    const since = Date.now() - days * 86400_000;
+    const rows = this.db
+      .prepare(
+        `SELECT date(r.started_at/1000,'unixepoch','localtime') AS date,
+                COUNT(*) AS total,
+                SUM(CASE WHEN json_extract(je.value, '$.status') IN ('warn','error') THEN 1 ELSE 0 END) AS fails
+         FROM inspection_reports r, json_each(r.results_json) je
+         WHERE r.datasource_id = ? AND r.started_at >= ?
+           AND json_extract(je.value, '$.checkId') = ?
+         GROUP BY date ORDER BY date`
+      )
+      .all(datasourceId, since, checkId) as Array<Record<string, unknown>>;
+    return rows.map((r) => ({
+      date: String(r.date),
+      total: Number(r.total),
+      fails: Number(r.fails)
+    }));
   }
 
   deleteForDatasource(datasourceId: string): void {

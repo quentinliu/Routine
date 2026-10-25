@@ -9,6 +9,14 @@ export function requireString(value: unknown, field: string): string {
 }
 
 export function assertValidSettings(s: Settings): void {
+  if (
+    s.appearance &&
+    s.appearance.theme !== 'system' &&
+    s.appearance.theme !== 'light' &&
+    s.appearance.theme !== 'dark'
+  ) {
+    throw new Error(`[INVALID] 未知主题: ${String(s.appearance.theme)}`);
+  }
   if (s.providerMode !== 'cloud' && s.providerMode !== 'local') {
     throw new Error(`[INVALID] 未知工作模式: ${String(s.providerMode)}`);
   }

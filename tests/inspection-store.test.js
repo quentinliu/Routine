@@ -108,6 +108,164 @@ test('inspection-store：按日聚合与检查项失败计数', () => {
   });
 });
 
+test('inspection-store：检查项通过率聚合与末次状态', () => {
+  withTmp(() => {
+    const s = getInspectionStore();
+    const day = 86400_000;
+    s.appendReport(
+      report({
+        startedAt: Date.now() - 2 * day,
+        results: [
+          OK_CHECK,
+          {
+            checkId: 'connection-watermark',
+            title: '连接水位',
+            status: 'warn',
+            detail: [],
+            durationMs: 3
+          }
+        ]
+      })
+    );
+    s.appendReport(
+      report({
+        startedAt: Date.now() - day,
+        results: [
+          OK_CHECK,
+          {
+            checkId: 'connection-watermark',
+            title: '连接水位',
+            status: 'error',
+            detail: [],
+            durationMs: 3
+          }
+        ]
+      })
+    );
+    // 最新一次巡检未包含 connection-watermark：末次状态应沿用最近一次包含该项的报告
+    s.appendReport(report({ startedAt: Date.now() - 60_000 }));
+    // 窗口外报告不计入聚合
+    s.appendReport(
+      report({
+        startedAt: Date.now() - 40 * day,
+        results: [
+          { checkId: 'legacy-check', title: '旧检查', status: 'error', detail: [], durationMs: 1 }
+        ]
+      })
+    );
+
+    const rows = s.checkTrend('ds1', 30);
+    assert.deepStrictEqual(
+      rows.map((r) => r.checkId),
+      ['connection-watermark', 'connectivity']
+    );
+    assert.strictEqual(rows[0].total, 2);
+    assert.strictEqual(rows[0].fails, 2);
+    assert.strictEqual(rows[0].skipped, 0);
+    assert.strictEqual(rows[0].recentFails7d, 2);
+    assert.strictEqual(rows[0].lastStatus, 'error');
+    assert.strictEqual(rows[1].total, 3);
+    assert.strictEqual(rows[1].fails, 0);
+    assert.strictEqual(rows[1].recentFails7d, 0);
+    assert.strictEqual(rows[1].lastStatus, 'ok');
+    assert.ok(!rows.some((r) => r.checkId === 'legacy-check'));
+  });
+});
+
+test('inspection-store：skipped 不计入失败，recentFails7d 独立统计', () => {
+  withTmp(() => {
+    const s = getInspectionStore();
+    s.appendReport(
+      report({
+        results: [
+          OK_CHECK,
+          {
+            checkId: 'version-support',
+            title: '版本支持',
+            status: 'skipped',
+            detail: [],
+            durationMs: 1
+          }
+        ]
+      })
+    );
+    s.appendReport(
+      report({
+        startedAt: Date.now() - 8 * 86400_000,
+        results: [
+          {
+            checkId: 'connection-watermark',
+            title: '连接水位',
+            status: 'warn',
+            detail: [],
+            durationMs: 2
+          }
+        ]
+      })
+    );
+
+    const rows = s.checkTrend('ds1', 30);
+    const skipped = rows.find((r) => r.checkId === 'version-support');
+    assert.strictEqual(skipped.total, 1);
+    assert.strictEqual(skipped.fails, 0);
+    assert.strictEqual(skipped.skipped, 1);
+    assert.strictEqual(skipped.lastStatus, 'skipped');
+
+    const oldFail = rows.find((r) => r.checkId === 'connection-watermark');
+    assert.strictEqual(oldFail.total, 1);
+    assert.strictEqual(oldFail.fails, 1);
+    assert.strictEqual(oldFail.recentFails7d, 0);
+  });
+});
+
+test('inspection-store：单检查项逐日序列', () => {
+  withTmp(() => {
+    const s = getInspectionStore();
+    const day = 86400_000;
+    const noon = new Date();
+    noon.setHours(12, 0, 0, 0);
+    const check = {
+      checkId: 'connection-watermark',
+      title: '连接水位',
+      detail: [],
+      durationMs: 1
+    };
+    s.appendReport(
+      report({ startedAt: noon.getTime() - 2 * day, results: [{ ...check, status: 'ok' }] })
+    );
+    s.appendReport(
+      report({ startedAt: noon.getTime() - day, results: [{ ...check, status: 'warn' }] })
+    );
+    s.appendReport(
+      report({
+        startedAt: noon.getTime() - day + 3600_000,
+        results: [{ ...check, status: 'error' }]
+      })
+    );
+
+    const series = s.checkSeries('ds1', 'connection-watermark', 30);
+    assert.strictEqual(series.length, 2);
+    assert.deepStrictEqual(series.map((p) => p.total), [1, 2]);
+    assert.deepStrictEqual(series.map((p) => p.fails), [0, 2]);
+  });
+});
+
+test('inspection-store：报告列表分页 limit/before', () => {
+  withTmp(() => {
+    const s = getInspectionStore();
+    const base = Date.now();
+    for (let i = 0; i < 3; i++) s.appendReport(report({ startedAt: base - i * 1000 }));
+
+    const first = s.listReports('ds1', 2);
+    assert.strictEqual(first.length, 2);
+    assert.ok(first[0].startedAt > first[1].startedAt);
+
+    const second = s.listReports('ds1', 2, first[1].startedAt);
+    assert.strictEqual(second.length, 1);
+    assert.ok(second[0].startedAt < first[1].startedAt);
+  });
+});
+
 test('inspection-store：超期报告按留存窗口清理', () => {
   withTmp(() => {
     const s = getInspectionStore();

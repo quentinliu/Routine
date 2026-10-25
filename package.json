@@ -1,13 +1,14 @@
 {
   "name": "routine",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "description": "Routine - 操作系统级 AI 助手（macOS / Windows）",
   "main": "dist-main/main/index.js",
   "author": "liuxuebai",
-  "license": "MIT",
+  "license": "Apache License 2.0",
   "publish": null,
   "scripts": {
     "typecheck": "tsc -p tsconfig.json --noEmit",
+    "icons": "node scripts/generate-icons.js",
     "lint": "eslint src tests",
     "test": "npm run compile:main && node --test tests/*.test.js",
     "compile:main": "tsc -p tsconfig.json",

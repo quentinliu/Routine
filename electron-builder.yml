@@ -14,6 +14,7 @@ files:
 # 所有运行时依赖均为纯 JS，关闭原生重编译以支持在 macOS 上交叉打包 Windows
 npmRebuild: false
 mac:
+  icon: build/icon.png
   target:
     - target: dmg
       arch: [x64, arm64]
@@ -22,6 +23,7 @@ mac:
   identity: null
   category: public.app-category.productivity
 win:
+  icon: build/icon.ico
   target:
     - target: nsis
       arch: [x64, arm64]

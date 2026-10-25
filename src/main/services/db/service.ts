@@ -46,6 +46,8 @@ interface CachedConn {
 
 export class DbService {
   private readonly conns = new Map<string, CachedConn>();
+  /** 巡检 in-flight 锁：同一数据源并发巡检会写重复报告（契约要求防重入） */
+  private readonly inspecting = new Set<string>();
 
   list(): DatasourceConfig[] {
     return getStorage().loadDatasources().map(maskDatasource);
@@ -150,8 +152,24 @@ export class DbService {
     return adapter.serverVersion();
   }
 
-  /** 基础巡检：版本 + 连接水位。完整运维诊断由 skills 承担，这里只留既有 IPC 契约的最小实现 */
+  /** 巡检入口：同数据源 in-flight 锁，重复发起直接拒绝 */
   async inspect(
+    id: string,
+    emitProgress?: (line: string) => void
+  ): Promise<InspectionReport> {
+    if (this.inspecting.has(id)) {
+      throw new Error('[INVALID] 该数据源正在巡检中，请勿重复发起');
+    }
+    this.inspecting.add(id);
+    try {
+      return await this.inspectUnlocked(id, emitProgress);
+    } finally {
+      this.inspecting.delete(id);
+    }
+  }
+
+  /** 基础巡检：版本 + 连接水位。完整运维诊断由 skills 承担，这里只留既有 IPC 契约的最小实现 */
+  private async inspectUnlocked(
     id: string,
     emitProgress?: (line: string) => void
   ): Promise<InspectionReport> {

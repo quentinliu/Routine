@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import type { DbTestResult, DatasourceConfig, InspectionTrend } from '../../shared/types';
+import type { DbTestResult, DatasourceConfig } from '../../shared/types';
 import { api } from '../ipc';
 import { useAppStore } from '../store';
 import { useEntityForm } from '../lib/useEntityForm';
@@ -55,12 +55,10 @@ export function DatasourceSection() {
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<DbTestResult | null>(null);
   const [saving, setSaving] = useState(false);
-  const [inspecting, setInspecting] = useState<string | null>(null);
-  const [trend, setTrend] = useState<{ dsId: string; data: InspectionTrend } | null>(null);
-  const [trendLoading, setTrendLoading] = useState(false);
   const { form, setForm, update } = useEntityForm<FormState>(null);
   const setNotice = useAppStore((s) => s.setNotice);
   const requestConfirm = useAppStore((s) => s.requestConfirm);
+  const openDbWorkbench = useAppStore((s) => s.openDbWorkbench);
 
   useEffect(() => {
     void refresh();
@@ -140,35 +138,6 @@ export function DatasourceSection() {
     }
   }
 
-  async function inspectNow(ds: DatasourceConfig) {
-    setInspecting(ds.id);
-    try {
-      const report = await api.inspectionRun(ds.id);
-      const lines = report.results.map((r) => `${r.title}: ${r.value ?? r.status}`).join('\n');
-      setNotice(`「${ds.name}」巡检完成：\n${lines}`);
-    } catch (err) {
-      setNotice(err instanceof Error ? err.message : String(err));
-    } finally {
-      setInspecting(null);
-    }
-  }
-
-  async function toggleTrend(ds: DatasourceConfig) {
-    if (trend?.dsId === ds.id) {
-      setTrend(null);
-      return;
-    }
-    setTrendLoading(true);
-    try {
-      const data = await api.inspectionTrends(ds.id, 30);
-      setTrend({ dsId: ds.id, data });
-    } catch (err) {
-      setNotice(err instanceof Error ? err.message : String(err));
-    } finally {
-      setTrendLoading(false);
-    }
-  }
-
   return (
     <section>
       <h4>数据源</h4>
@@ -179,7 +148,7 @@ export function DatasourceSection() {
       <div className="entity-list">
         {list.length === 0 && <div className="field-hint">尚未配置数据源，点击下方按钮新增。</div>}
         {list.map((ds) => (
-          <div key={ds.id} className={`entity-item ${trend?.dsId === ds.id ? 'trend-open' : ''}`}>
+          <div key={ds.id} className="entity-item">
             <div className="entity-main">
               <span className={`entity-dot ${ds.enabled ? 'on' : ''}`} />
               <span className="entity-name">{ds.name}</span>
@@ -189,19 +158,8 @@ export function DatasourceSection() {
               </span>
             </div>
             <div className="entity-actions">
-              <button
-                className="btn-mini"
-                disabled={trendLoading}
-                onClick={() => void toggleTrend(ds)}
-              >
-                {trend?.dsId === ds.id ? '收起' : '趋势'}
-              </button>
-              <button
-                className="btn-mini"
-                disabled={inspecting === ds.id}
-                onClick={() => void inspectNow(ds)}
-              >
-                {inspecting === ds.id ? '…' : '巡检'}
+              <button className="btn-mini" onClick={() => openDbWorkbench(ds.id)}>
+                工作台
               </button>
               <button className="btn-mini" onClick={() => setForm(toForm(ds))}>
                 编辑
@@ -210,36 +168,6 @@ export function DatasourceSection() {
                 删除
               </button>
             </div>
-            {trend?.dsId === ds.id && (
-              <div className="trend-panel">
-                <div className="trend-bars">
-                  {trend.data.days.length === 0 && (
-                    <span className="field-hint">近 30 天暂无巡检记录</span>
-                  )}
-                  {trend.data.days.map((d) => {
-                    const max = Math.max(...trend.data.days.map((x) => x.count), 1);
-                    const barH = Math.max(4, Math.round((d.count / max) * 48));
-                    const failH =
-                      d.failures > 0 ? Math.max(4, Math.round((d.failures / max) * 48)) : 0;
-                    return (
-                      <div
-                        key={d.date}
-                        className="trend-col"
-                        title={`${d.date}：${d.count} 次，失败 ${d.failures}`}
-                      >
-                        <div className="trend-bar" style={{ height: barH }}>
-                          {failH > 0 && (
-                            <div className="trend-bar-fail" style={{ height: failH }} />
-                          )}
-                        </div>
-                        <span className="trend-date">{d.date.slice(5)}</span>
-                      </div>
-                    );
-                  })}
-                </div>
-                <span className="field-hint">近 30 天巡检趋势（红色为当日失败次数）</span>
-              </div>
-            )}
           </div>
         ))}
       </div>
@@ -248,6 +176,9 @@ export function DatasourceSection() {
         <div className="index-row">
           <button className="btn-secondary" onClick={() => setForm({ ...EMPTY_FORM })}>
             新增数据源
+          </button>
+          <button className="btn-secondary" onClick={() => openDbWorkbench()}>
+            打开数据库工作台
           </button>
         </div>
       )}

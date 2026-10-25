@@ -1,4 +1,11 @@
-import { app, dialog, ipcMain, shell as electronShell, type BrowserWindow } from 'electron';
+import {
+  app,
+  BrowserWindow,
+  dialog,
+  ipcMain,
+  nativeTheme,
+  shell as electronShell
+} from 'electron';
 import { EventPayloadMap, IPC } from '../shared/ipc';
 import {
   AGENT_NAMES,
@@ -22,7 +29,7 @@ import { getDbService } from './services/db/service';
 import { getFileAgentService } from './services/fileAgent';
 import { getFileIndexService } from './services/fileIndexer';
 import { getInspectionStore } from './services/inspectionStore';
-import { evaluateInspectionAlerts } from './services/inspectionAlerts';
+import { runInspection } from './services/inspectionRunner';
 import { advance, getScheduler } from './services/scheduler';
 import { getStorage, initStorage } from './services/storage';
 import { initAudit } from './services/audit';
@@ -35,6 +42,12 @@ import { expandHome } from './util/paths';
 import { assertValidSettings } from './util/guards';
 
 let mainWindow: BrowserWindow | null = null;
+
+/** 主题切换后同步窗口底色，避免缩放/切换瞬间闪出另一套背景 */
+function syncWindowBackground(): void {
+  const color = nativeTheme.shouldUseDarkColors ? '#0d1117' : '#ffffff';
+  for (const win of BrowserWindow.getAllWindows()) win.setBackgroundColor(color);
+}
 
 export function setMainWindow(win: BrowserWindow | null): void {
   mainWindow = win;
@@ -109,6 +122,9 @@ export function registerIpc(): void {
   initAudit(app.getPath('userData'));
   const storage = getStorage();
   const initialSettings = storage.loadSettings();
+  // M5：原生控件/对话框跟随设置主题；窗口底色在 index.ts 创建时按此取色
+  nativeTheme.themeSource = initialSettings.appearance?.theme ?? 'system';
+  nativeTheme.on('updated', syncWindowBackground);
   getRouter().configure(initialSettings);
   getSafetyGate().configure(initialSettings.riskOverrides);
   getBrowserAgentService().configureLLM(getRouter());
@@ -122,6 +138,8 @@ export function registerIpc(): void {
   ipcMain.handle(IPC.SettingsSet, (_e, p: { settings: Settings }) => {
     assertValidSettings(p.settings);
     storage.saveSettings(p.settings);
+    nativeTheme.themeSource = p.settings.appearance?.theme ?? 'system';
+    syncWindowBackground();
     getRouter().configure(p.settings);
     getSafetyGate().configure(p.settings.riskOverrides);
     return storage.loadSettings();
@@ -304,26 +322,38 @@ export function registerIpc(): void {
     getInspectionStore().deleteForDatasource(p.id);
   });
   ipcMain.handle(IPC.DbTest, (_e, p: { id: string }) => getDbService().test(p.id));
-  ipcMain.handle(IPC.InspectionRun, async (_e, p: { datasourceId: string }) => {
-    const report = await getDbService().inspect(p.datasourceId, (line) =>
+  ipcMain.handle(IPC.InspectionRun, (_e, p: { datasourceId: string }) =>
+    runInspection(p.datasourceId, (line) =>
       sendToRenderer(IPC.InspectionProgress, {
         reportId: p.datasourceId,
         checkId: line,
         status: 'ok'
       })
-    );
-    getStorage().appendInspectionReport(report);
-    evaluateInspectionAlerts(report);
-    return report;
-  });
-  ipcMain.handle(IPC.InspectionReports, (_e, p: { datasourceId?: string }) => {
-    const all = getStorage().loadInspections();
-    return p.datasourceId ? all.filter((r) => r.datasourceId === p.datasourceId) : all;
-  });
+    )
+  );
+  ipcMain.handle(
+    IPC.InspectionReports,
+    (_e, p: { datasourceId?: string; limit?: number; before?: number }) => {
+      const limit = Math.min(200, Math.max(1, Math.floor(Number(p.limit) || 50)));
+      const before = Number.isFinite(Number(p.before)) ? Number(p.before) : undefined;
+      return getInspectionStore().listReports(p.datasourceId, limit, before);
+    }
+  );
   ipcMain.handle(IPC.InspectionTrends, (_e, p: { datasourceId: string; days: number }) => {
     const days = Math.min(365, Math.max(7, Math.floor(Number(p.days) || 90)));
     return getInspectionStore().dailySeries(p.datasourceId, days);
   });
+  ipcMain.handle(IPC.InspectionCheckTrend, (_e, p: { datasourceId: string; days: number }) => {
+    const days = Math.min(365, Math.max(7, Math.floor(Number(p.days) || 90)));
+    return getInspectionStore().checkTrend(p.datasourceId, days);
+  });
+  ipcMain.handle(
+    IPC.InspectionCheckSeries,
+    (_e, p: { datasourceId: string; checkId: string; days: number }) => {
+      const days = Math.min(365, Math.max(7, Math.floor(Number(p.days) || 90)));
+      return getInspectionStore().checkSeries(p.datasourceId, String(p.checkId ?? ''), days);
+    }
+  );
 
   const skills = getSkillRegistry();
   ipcMain.handle(IPC.SkillList, () => skills.list());

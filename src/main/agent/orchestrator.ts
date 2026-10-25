@@ -64,6 +64,7 @@ ${OP_LIST_TEXT}
 - db.list {} — 列出已配置的数据库数据源（ID、名称、类型、主机）
 - db.query {datasourceId, sql} — 对数据源执行只读 SQL（SELECT/SHOW/EXPLAIN/DESC，主进程强制守卫）
 - db.exec {datasourceId, sql, reason} — 执行写操作/管理语句（KILL 会话等），需用户确认
+- inspection.run {datasourceId} — 对数据源执行一次基础巡检（连通性/连接水位/版本），报告进入数据库工作台与趋势统计（safe）
 - skill.run {skill, datasourceId} — 激活运维技能，返回完整操作手册；用户需求匹配技能目录中的场景时优先调用
 - skill.read {skill, path} — 读取技能的 references 附加文档
 - memory.write {content} — 把值得跨会话长期记住的信息（用户偏好/项目背景/重要约定）写入长期记忆，每次一条要点

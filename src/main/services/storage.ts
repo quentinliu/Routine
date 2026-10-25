@@ -156,6 +156,14 @@ export class StorageService {
         maxSteps: Number.isFinite(rawMaxSteps)
           ? Math.min(30, Math.max(2, Math.floor(rawMaxSteps)))
           : DEFAULT_SETTINGS.agent.maxSteps
+      },
+      appearance: {
+        theme:
+          saved.appearance?.theme === 'light' ||
+          saved.appearance?.theme === 'dark' ||
+          saved.appearance?.theme === 'system'
+            ? saved.appearance.theme
+            : 'system'
       }
     };
   }

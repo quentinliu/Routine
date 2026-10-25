@@ -45,6 +45,9 @@ export interface AgentConfig {
   maxSteps: number;
 }
 
+/** 界面主题：system 跟随操作系统（M5 契约批准 2026-10-25） */
+export type ThemeMode = 'system' | 'light' | 'dark';
+
 export interface Settings {
   providerMode: 'cloud' | 'local';
   /** 云端模型档案列表（≥1 条）；activeCloudId 失效时由主进程归一为首条 */
@@ -66,6 +69,8 @@ export interface Settings {
   notifications?: { enabled: boolean };
   /** 工具风险级覆盖（key = 工具名；基线 high 不可下调至 safe，未知工具忽略；M2） */
   riskOverrides?: Record<string, 'safe' | 'medium' | 'high'>;
+  /** 界面主题；缺省 system（M5 契约批准 2026-10-25） */
+  appearance?: { theme: ThemeMode };
 }
 
 // indexDirs 中的 "~" 由主进程在读取后展开为 os.homedir()
@@ -93,7 +98,8 @@ export const DEFAULT_SETTINGS: Settings = {
   excludeGlobs: ['node_modules/**', '.git/**', 'Library/**', '*.app/**', '**/*.dmg', '**/*.zip'],
   scheduler: { maxConcurrent: 1 },
   siteCredentials: {},
-  agent: { maxSteps: 12 }
+  agent: { maxSteps: 12 },
+  appearance: { theme: 'system' }
 };
 
 export interface ChatMessage {
@@ -350,6 +356,29 @@ export interface DailyPoint {
 export interface InspectionTrend {
   datasourceId: string;
   days: DailyPoint[];
+}
+
+// 检查项通过率行（M4 契约批准 2026-10-24，见 CONTRACTS.md 变更记录）
+export interface CheckTrendRow {
+  checkId: string;
+  title: string;
+  /** 窗口内该检查项出现的报告次数（含 skipped） */
+  total: number;
+  /** 其中 warn/error 次数（skipped 不计入失败） */
+  fails: number;
+  /** 其中因环境不适用被跳过的次数 */
+  skipped: number;
+  /** 近 7 天（固定窗口）该检查项的失败次数，用于「正在恶化」标记 */
+  recentFails7d: number;
+  lastStatus: CheckStatus;
+}
+
+/** 单检查项逐日序列点（M4 契约批准 2026-10-24，见 CONTRACTS.md 变更记录） */
+export interface CheckSeriesPoint {
+  /** 'YYYY-MM-DD'（本地时区） */
+  date: string;
+  total: number;
+  fails: number;
 }
 
 // ===== SSH 远程主机（P1.5 契约批准 2026-10-16，见 CONTRACTS.md 变更记录）=====

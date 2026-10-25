@@ -1,4 +1,4 @@
-import { app, BrowserWindow } from 'electron';
+import { app, BrowserWindow, nativeTheme } from 'electron';
 import path from 'node:path';
 import { registerIpc, setMainWindow } from './ipc';
 import { createTray } from './tray';
@@ -12,7 +12,7 @@ function createWindow(): void {
     minWidth: 1100,
     minHeight: 700,
     title: 'Routine',
-    backgroundColor: '#0d1117',
+    backgroundColor: nativeTheme.shouldUseDarkColors ? '#0d1117' : '#ffffff',
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
@@ -45,6 +45,10 @@ function createWindow(): void {
 }
 
 app.whenReady().then(() => {
+  // 开发模式下 Dock 默认是 Electron 图标，显式换成 R 图标（打包版由构建配置注入）
+  if (!app.isPackaged && process.platform === 'darwin') {
+    app.dock?.setIcon(path.join(app.getAppPath(), 'build/icon.png'));
+  }
   registerIpc();
   createTray();
   createWindow();

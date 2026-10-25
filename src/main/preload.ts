@@ -26,6 +26,8 @@ const CH = {
   MemoryGet: 'memory:get',
   MemorySave: 'memory:save',
   InspectionTrends: 'inspection:trends',
+  InspectionCheckTrend: 'inspection:check-trend',
+  InspectionCheckSeries: 'inspection:check-series',
   OpenExternal: 'app:open-external',
   TodoList: 'todo:list',
   TodoSave: 'todo:save',
@@ -100,6 +102,10 @@ const api: RoutineApi = {
   memorySave: (content) => ipcRenderer.invoke(CH.MemorySave, { content }),
   inspectionTrends: (datasourceId, days) =>
     ipcRenderer.invoke(CH.InspectionTrends, { datasourceId, days }),
+  inspectionCheckTrend: (datasourceId, days) =>
+    ipcRenderer.invoke(CH.InspectionCheckTrend, { datasourceId, days }),
+  inspectionCheckSeries: (datasourceId, checkId, days) =>
+    ipcRenderer.invoke(CH.InspectionCheckSeries, { datasourceId, checkId, days }),
   openExternal: (url) => ipcRenderer.invoke(CH.OpenExternal, { url }),
   todoList: () => ipcRenderer.invoke(CH.TodoList),
   todoSave: (task) => ipcRenderer.invoke(CH.TodoSave, { task }),
@@ -111,8 +117,8 @@ const api: RoutineApi = {
   dbDelete: (id) => ipcRenderer.invoke(CH.DbDelete, { id }),
   dbTest: (id) => ipcRenderer.invoke(CH.DbTest, { id }),
   inspectionRun: (datasourceId) => ipcRenderer.invoke(CH.InspectionRun, { datasourceId }),
-  inspectionReports: (datasourceId) =>
-    ipcRenderer.invoke(CH.InspectionReports, { datasourceId }),
+  inspectionReports: (datasourceId, limit, before) =>
+    ipcRenderer.invoke(CH.InspectionReports, { datasourceId, limit, before }),
   sshList: () => ipcRenderer.invoke(CH.SshList),
   sshSave: (host) => ipcRenderer.invoke(CH.SshSave, { host }),
   sshDelete: (id) => ipcRenderer.invoke(CH.SshDelete, { id }),

@@ -11,6 +11,7 @@ export function Topbar() {
   const setSettingsOpen = useAppStore((s) => s.setSettingsOpen);
   const setFileDialogOpen = useAppStore((s) => s.setFileDialogOpen);
   const setTodoDialogOpen = useAppStore((s) => s.setTodoDialogOpen);
+  const openDbWorkbench = useAppStore((s) => s.openDbWorkbench);
   const [modelOpen, setModelOpen] = useState(false);
 
   const activeProfile = cloudProfiles.find((p) => p.id === activeCloudId) ?? cloudProfiles[0];
@@ -99,6 +100,32 @@ export function Topbar() {
             <path d="M16 16l4.5 4.5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
           </svg>
           文件搜索
+        </button>
+        <button className="topbar-btn" onClick={() => openDbWorkbench()}>
+          <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden>
+            <ellipse
+              cx="12"
+              cy="5.5"
+              rx="7"
+              ry="3"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.8"
+            />
+            <path
+              d="M5 5.5v13c0 1.7 3.1 3 7 3s7-1.3 7-3v-13"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.8"
+            />
+            <path
+              d="M5 12c0 1.7 3.1 3 7 3s7-1.3 7-3"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.8"
+            />
+          </svg>
+          数据库
         </button>
         <button className="topbar-btn" onClick={() => setTodoDialogOpen(true)}>
           <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden>

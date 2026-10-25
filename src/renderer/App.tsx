@@ -7,6 +7,7 @@ import { AgentPanel } from './components/AgentPanel';
 import { SettingsView } from './components/SettingsView';
 import { FileSearchDialog } from './components/FileSearchDialog';
 import { TodoDialog } from './components/TodoDialog';
+import { DatabaseWorkbench } from './components/DatabaseWorkbench';
 import { SafetyDialog } from './components/SafetyDialog';
 import { NoticeDialogs } from './components/NoticeDialogs';
 import { OnboardingWizard, onboardingDismissed } from './components/OnboardingWizard';
@@ -17,6 +18,7 @@ export function App() {
   const settingsOpen = useAppStore((s) => s.settingsOpen);
   const fileDialogOpen = useAppStore((s) => s.fileDialogOpen);
   const todoDialogOpen = useAppStore((s) => s.todoDialogOpen);
+  const dbWorkbenchOpen = useAppStore((s) => s.dbWorkbenchOpen);
   const pendingSafety = useAppStore((s) => s.pendingSafety);
   const [booted, setBooted] = useState(false);
   const [wizardOpen, setWizardOpen] = useState(() => !onboardingDismissed());
@@ -52,6 +54,7 @@ export function App() {
       {settingsOpen && <SettingsView />}
       {fileDialogOpen && <FileSearchDialog />}
       {todoDialogOpen && <TodoDialog />}
+      {dbWorkbenchOpen && <DatabaseWorkbench />}
       {pendingSafety && <SafetyDialog request={pendingSafety} />}
       {booted &&
         wizardOpen &&

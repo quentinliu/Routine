@@ -16,6 +16,8 @@ import type {
   InspectionProgressEvent,
   InspectionReport,
   InspectionTrend,
+  CheckSeriesPoint,
+  CheckTrendRow,
   LogEntry,
   McpServerInfo,
   McpServerConfig,
@@ -62,6 +64,9 @@ export const IPC = {
   MemoryGet: 'memory:get',
   MemorySave: 'memory:save',
   InspectionTrends: 'inspection:trends',
+  // 检查项通过率（M4 契约批准 2026-10-24，见 CONTRACTS.md 变更记录）
+  InspectionCheckTrend: 'inspection:check-trend',
+  InspectionCheckSeries: 'inspection:check-series',
   OpenExternal: 'app:open-external',
   TodoList: 'todo:list',
   TodoSave: 'todo:save',
@@ -155,6 +160,13 @@ export interface RoutineApi {
   memoryGet(): Promise<string>;
   memorySave(content: string): Promise<void>;
   inspectionTrends(datasourceId: string, days: number): Promise<InspectionTrend>;
+  inspectionCheckTrend(datasourceId: string, days: number): Promise<CheckTrendRow[]>;
+  /** 单检查项逐日序列（工作台行下钻） */
+  inspectionCheckSeries(
+    datasourceId: string,
+    checkId: string,
+    days: number
+  ): Promise<CheckSeriesPoint[]>;
   openExternal(url: string): Promise<void>;
   todoList(): Promise<{ tasks: TodoTask[]; runs: TodoRunRecord[] }>;
   todoSave(task: TodoTask): Promise<TodoTask>;
@@ -166,7 +178,12 @@ export interface RoutineApi {
   dbDelete(id: string): Promise<void>;
   dbTest(id: string): Promise<DbTestResult>;
   inspectionRun(datasourceId: string): Promise<InspectionReport>;
-  inspectionReports(datasourceId?: string): Promise<InspectionReport[]>;
+  /** 按时间倒序分页；limit 缺省 50（钳制 [1,200]），before 为上一页最旧的 startedAt */
+  inspectionReports(
+    datasourceId?: string,
+    limit?: number,
+    before?: number
+  ): Promise<InspectionReport[]>;
 
   sshList(): Promise<SshHostConfig[]>;
   sshSave(host: SshHostConfig): Promise<SshHostConfig>;

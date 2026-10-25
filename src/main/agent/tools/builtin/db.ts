@@ -1,6 +1,7 @@
 import type { DatasourceConfig } from '../../../../shared/types';
 import type { ToolDefinition } from '../types';
 import { getDbService } from '../../../services/db/service';
+import { runInspection } from '../../../services/inspectionRunner';
 
 function maskList(): Promise<DatasourceConfig[]> {
   return Promise.resolve(getDbService().list());
@@ -36,6 +37,35 @@ export function createDbTools(): ToolDefinition[] {
         const sql = String(args.sql ?? '');
         const rows = await getDbService().query(datasourceId, sql);
         return { rowCount: rows.length, rows };
+      }
+    },
+    {
+      name: 'inspection.run',
+      description:
+        '对指定数据源执行一次基础巡检（连通性 / 连接水位 / 版本支持）。只读、safe；报告会写入数据库工作台并参与趋势与告警统计。',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          datasourceId: { type: 'string', description: 'db.list 返回的数据源 ID' }
+        },
+        required: ['datasourceId']
+      },
+      agent: 'db',
+      maxResultChars: 2000,
+      risk: 'safe',
+      execute: async (args, ctx) => {
+        const datasourceId = String(args.datasourceId ?? '');
+        const report = await runInspection(datasourceId, (line) => ctx.log(line));
+        return {
+          datasource: report.datasourceName,
+          ok: report.ok,
+          serverVersion: report.serverVersion,
+          checks: report.results.map((r) => ({
+            check: r.title,
+            status: r.status,
+            value: r.value
+          }))
+        };
       }
     },
     {

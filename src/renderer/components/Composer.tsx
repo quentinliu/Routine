@@ -1,4 +1,4 @@
-import { useRef, useState, type KeyboardEvent } from 'react';
+import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
 import { useAppStore } from '../store';
 
 export function Composer() {
@@ -6,9 +6,26 @@ export function Composer() {
   const currentSessionId = useAppStore((s) => s.currentSessionId);
   const sendText = useAppStore((s) => s.sendText);
   const stopChat = useAppStore((s) => s.stopChat);
+  const composerDraft = useAppStore((s) => s.composerDraft);
+  const consumeComposerDraft = useAppStore((s) => s.consumeComposerDraft);
   const [text, setText] = useState('');
   const taRef = useRef<HTMLTextAreaElement>(null);
   const runningHere = runningSessionId !== null && runningSessionId === currentSessionId;
+
+  // 外部预填（数据库工作台「在对话中诊断」）：只写入草稿并聚焦，不自动发送
+  useEffect(() => {
+    if (!composerDraft) return;
+    setText(composerDraft);
+    consumeComposerDraft();
+    requestAnimationFrame(() => {
+      const ta = taRef.current;
+      if (!ta) return;
+      ta.focus();
+      ta.setSelectionRange(composerDraft.length, composerDraft.length);
+      ta.style.height = 'auto';
+      ta.style.height = `${Math.min(ta.scrollHeight, 160)}px`;
+    });
+  }, [composerDraft, consumeComposerDraft]);
 
   function autoResize() {
     const ta = taRef.current;

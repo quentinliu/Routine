@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import type { CloudProfile, Settings } from '../../shared/types';
+import type { CloudProfile, Settings, ThemeMode } from '../../shared/types';
 import type { JSX } from 'react';
 import type { CloudPreset } from '../lib/cloudPresets';
 import { CLOUD_PRESETS, matchPreset } from '../lib/cloudPresets';
@@ -12,7 +12,13 @@ import { SkillsSection } from './SkillsSection';
 
 type HealthState = { cloud: boolean; local: boolean } | null;
 
-type CategoryId = 'models' | 'automation' | 'db' | 'ssh' | 'skills' | 'mcp';
+type CategoryId = 'models' | 'appearance' | 'automation' | 'db' | 'ssh' | 'skills' | 'mcp';
+
+const THEMES: { id: ThemeMode; label: string; desc: string }[] = [
+  { id: 'system', label: '跟随系统', desc: '随操作系统自动切换' },
+  { id: 'light', label: '浅色', desc: '明亮界面，适合白天' },
+  { id: 'dark', label: '深色', desc: '低光环境更省眼' }
+];
 
 const CATEGORY_ICONS: Record<CategoryId, JSX.Element> = {
   models: (
@@ -22,6 +28,17 @@ const CATEGORY_ICONS: Record<CategoryId, JSX.Element> = {
         d="M10 3.5V7m4-3.5V7m-4 10v3.5m4-3.5v3.5M3.5 10H7m-3.5 4H7m10-4h3.5m-3.5 4h3.5"
         stroke="currentColor"
         strokeWidth="1.5"
+        strokeLinecap="round"
+      />
+    </svg>
+  ),
+  appearance: (
+    <svg viewBox="0 0 24 24" width="15" height="15" aria-hidden>
+      <circle cx="12" cy="12" r="4" fill="none" stroke="currentColor" strokeWidth="1.6" />
+      <path
+        d="M12 3v2m0 14v2M3 12h2m14 0h2M5.6 5.6 7 7m10 10 1.4 1.4M18.4 5.6 17 7M7 17l-1.4 1.4"
+        stroke="currentColor"
+        strokeWidth="1.6"
         strokeLinecap="round"
       />
     </svg>
@@ -88,6 +105,7 @@ const CATEGORY_ICONS: Record<CategoryId, JSX.Element> = {
 
 const CATEGORIES: { id: CategoryId; label: string }[] = [
   { id: 'models', label: '模型服务' },
+  { id: 'appearance', label: '外观' },
   { id: 'automation', label: '文件与自动化' },
   { id: 'db', label: '数据库' },
   { id: 'ssh', label: 'SSH 主机' },
@@ -205,6 +223,18 @@ export function SettingsView() {
     setSaved(true);
     void refreshCloudHealth();
     setTimeout(() => setSaved(false), 2000);
+  }
+
+  // 主题是低风险偏好：选择即生效并立即持久化，不影响其他分类未保存的编辑
+  async function chooseTheme(theme: ThemeMode) {
+    setForm((f) => ({ ...f, appearance: { theme } }));
+    try {
+      const s = await api.settingsSet({ ...settings, appearance: { theme } });
+      applySettings(s);
+    } catch (err) {
+      setForm((f) => ({ ...f, appearance: settings.appearance ?? { theme: 'system' } }));
+      setNotice(err instanceof Error ? err.message : String(err));
+    }
   }
 
   async function testConnection() {
@@ -478,6 +508,38 @@ export function SettingsView() {
                   </div>
                 </section>
               </>
+            )}
+
+            {active === 'appearance' && (
+              <section>
+                <h4>界面主题</h4>
+                <p className="field-hint">
+                  选择即生效并立即保存；「跟随系统」会随操作系统的浅色/深色模式自动切换。
+                </p>
+                <div className="theme-cards">
+                  {THEMES.map((t) => {
+                    const currentTheme = form.appearance?.theme ?? 'system';
+                    return (
+                      <button
+                        key={t.id}
+                        className={`theme-card ${currentTheme === t.id ? 'selected' : ''}`}
+                        onClick={() => void chooseTheme(t.id)}
+                      >
+                        <span className={`theme-preview ${t.id}`}>
+                          <span className="theme-preview-bar" />
+                          <span className="theme-preview-body">
+                            <span className="theme-preview-line long" />
+                            <span className="theme-preview-line" />
+                            <span className="theme-preview-chip" />
+                          </span>
+                        </span>
+                        <span className="theme-card-name">{t.label}</span>
+                        <span className="theme-card-desc">{t.desc}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </section>
             )}
 
             {active === 'automation' && (

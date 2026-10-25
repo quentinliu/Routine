@@ -16,6 +16,10 @@
 > - 2026-10-24 · M2 契约扩展（Ops 工作台批次一：托盘/通知/记忆/巡检趋势/风险策略），编排者已批准，设计见 `.sisyphus/plans/ops-workbench-roadmap.md`：`Settings` 追加 `tray?: {closeToTray}` / `notifications?: {enabled}` / `riskOverrides?: Record<string,'safe'\|'medium'\|'high'>`（均缺省关闭语义 = 功能开启，旧配置自动兼容；riskOverrides 硬底线：基线 high 不可下调至 safe、未知工具忽略）；`src/shared/types.ts` 追加 `DailyPoint` / `InspectionTrend`；`src/shared/ipc.ts` 追加 `memory:get` / `memory:save` / `inspection:trends` 通道与对应 `RoutineApi` 方法（preload 同步追加）；`src/main/index.ts`（冻结）追加 2 行：`createTray` 导入与调用；主进程新增 `src/main/tray.ts`（托盘：显示主窗口/暂停定时任务/退出，close-to-tray 拦截位于 ipc.ts `setMainWindow`，退出经 `markQuitting` 绕过）与 `src/main/services/notifier.ts`（系统通知统一入口，带 6h 去重键）；scheduler 追加 `setPaused/isPaused`（暂停自动触发，手动 runTaskNow 不受影响）与执行完成通知挂钩
 > - 2026-10-24 · M3 契约扩展（两轮审查修复批次），编排者已批准，计划见 `.sisyphus/plans/design-review-remediation.md`：**R2-P0 修复**——FC 兜底摘要改由任务级 `taskObservations` 生成（原消息反解析在云模式下恒空）；`Settings.scheduler.maxConcurrent` 废弃（编排器单飞，调度并发钳制为 1），失败任务 15 分钟后自动重试一次；`src/shared/ipc.ts` 追加 `EventPayloadMap`（事件通道→载荷映射）与 `sendToRenderer` 类型化；IPC 错误采用 `[CODE] message` 前缀约定（`[INVALID]` / `[TURN_FAILED]`）；工具失败分型：用户拒绝不计入连续失败钳制；FC 能力探测由消息正则改为 `LlmHttpError.status`（openaiCompat 新增导出类）；删除 `SafetyGate.classify/baseClassify` 死代码（风险基线唯一来源 = ToolDefinition.risk）；`SafetyRequest` 追加 `tool?: string`（审计归因）；敏感凭据落盘加密（`enc:` 前缀，safeStorage 不可用回退明文）：SSH/DB 密码与站点凭据；JSON 解析失败改名 `.corrupt-<ts>` 保留并告警；新增组合根 `src/main/composition.ts`（工具/技能/编排器装配自 ipc.ts 迁出）与 `src/main/services/chatService.ts`（`runTurn` 统一聊天/定时两路径的会话持久化与失败清理）；渲染层新增 `lib/mcpParse.ts` / `lib/useEntityForm.ts` / `lib/cloudPresets.ts`（前者自 McpSection 下沉）
 
+> - 2026-10-24 · M4 契约扩展（数据库工作台：观测面独立），编排者已批准：`src/shared/types.ts` 追加 `CheckTrendRow`（`checkId` / `title` / `total` / `fails` / `skipped` / `recentFails7d` / `lastStatus`；`fails` 仅计 warn/error，`skipped` 单列不拉低通过率）与 `CheckSeriesPoint`；`src/shared/ipc.ts` 追加 `inspection:check-trend` / `inspection:check-series` 通道及对应 `RoutineApi` 方法（preload 同步追加）；`inspection:reports` 载荷追加可选 `{limit, before}`（limit 缺省 50、钳制 [1,200]，before 为上一页最旧 startedAt），返回仍为 `InspectionReport[]`；`InspectionStore` 追加 `checkTrend(datasourceId, days)`（`json_each` 按 checkId 聚合，末次状态取窗口内最近一次**包含该检查项**的报告）与 `checkSeries(datasourceId, checkId, days)`（按本地日期逐日聚合）；新增 `src/main/services/inspectionRunner.ts`（执行 → 落库 → 告警评估唯一入口），`DbService.inspect` 增加同数据源 in-flight 锁（兑现既有防重入条款）；新增内置工具 `inspection.run {datasourceId}`（safe，让 Agent/定时任务能产出巡检报告，打通观测数据来源）；渲染层新增 `DatabaseWorkbench` 全屏弹窗（Topbar 主入口，设置页仅留入口与摘要），趋势支持 7/30/90/365 天，检查项行下钻逐日序列、报告行展开单次明细，异常记录由报告序列推导，并支持“在对话中诊断”预填（写入草稿、不自动发送）
+
+> - 2026-10-25 · M5 契约扩展（界面主题），编排者已批准：`src/shared/types.ts` 新增 `ThemeMode`（`system` / `light` / `dark`）与 `Settings.appearance?: { theme }`（缺省 `system`，`loadSettings` 归一非法值）；不新增 IPC 通道，复用 `settings:get/set`。`styles.css` 完成三层令牌化：新增 `--accent-strong/--accent-hover/--on-accent/--code-bg/--overlay/--knob/--hover/--bg-elev` 及 success/warn/danger 的 dim/border 变体，令牌块之外禁止裸色（新增 `tests/theme-tokens.test.js` 机器校验）；`:root[data-theme='light']` 提供浅色令牌并设置 `color-scheme: light`。渲染层 `theme.ts` 在 React 挂载前用 localStorage 镜像出首帧，设置加载后以 `Settings.appearance` 对账，`system` 模式监听 `prefers-color-scheme` 实时切换；设置页新增「外观」分类，选择即生效并立即持久化。主进程 `nativeTheme.themeSource` 随设置同步，窗口 `backgroundColor` 按 `nativeTheme.shouldUseDarkColors` 取色；托盘图标为模板图（`setTemplateImage`），由 macOS 自动适配浅/深菜单栏，无需新增资源
+
 ## 目录所有权
 
 | 代理 | 可写目录/文件 | 职责 |
@@ -58,7 +62,9 @@ invoke（renderer→main，参数为对象）：
 | `db:delete` | `{id}` | `void` |
 | `db:test` | `{id}` | `{ok, version, latencyMs}` |
 | `inspection:run` | `{datasourceId}` | `InspectionReport`（进度经 `inspection:progress` 事件；同数据源防重入） |
-| `inspection:reports` | `{datasourceId?}` | `InspectionReport[]` |
+| `inspection:reports` | `{datasourceId?, limit?, before?}` | `InspectionReport[]`（倒序分页；limit 缺省 50、钳制 [1,200]） |
+| `inspection:check-trend` | `{datasourceId, days}` | `CheckTrendRow[]`（窗口内按检查项聚合；days 钳制 [7,365]） |
+| `inspection:check-series` | `{datasourceId, checkId, days}` | `CheckSeriesPoint[]`（单检查项逐日序列） |
 | `ssh:list` | `{}` | `SshHostConfig[]` |
 | `ssh:save` | `{host}` | `SshHostConfig`（校验 + upsert） |
 | `ssh:delete` | `{id}` | `void` |
