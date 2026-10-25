@@ -1,6 +1,7 @@
 import { app, BrowserWindow } from 'electron';
 import path from 'node:path';
 import { registerIpc, setMainWindow } from './ipc';
+import { createTray } from './tray';
 
 let mainWindow: BrowserWindow | null = null;
 
@@ -15,7 +16,8 @@ function createWindow(): void {
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
-      nodeIntegration: false
+      nodeIntegration: false,
+      sandbox: true
     }
   });
 
@@ -44,6 +46,7 @@ function createWindow(): void {
 
 app.whenReady().then(() => {
   registerIpc();
+  createTray();
   createWindow();
 
   app.on('activate', () => {

@@ -47,7 +47,8 @@ export class ToolRegistry {
     const def = this.defs.get(name);
     if (!def) throw new Error(`未知工具: ${name}`);
 
-    const risk = typeof def.risk === 'function' ? def.risk(args) : def.risk;
+    const baseRisk = typeof def.risk === 'function' ? def.risk(args) : def.risk;
+    const risk = this.safety.effectiveRisk(name, baseRisk);
     if (risk !== 'safe') {
       const d = def.describe
         ? def.describe(args, risk)
@@ -56,7 +57,8 @@ export class ToolRegistry {
         def.agent,
         d.actionSummary,
         d.plan.length > 0 ? d.plan : [`工具: ${name}`, `参数: ${JSON.stringify(args)}`],
-        risk
+        risk,
+        name
       );
       ctx.status(
         'waiting-approval',

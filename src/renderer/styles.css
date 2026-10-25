@@ -782,6 +782,82 @@ button:disabled { opacity: 0.45; cursor: default; }
 }
 .model-menu-manage:hover { text-decoration: underline; }
 
+.check-field {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+  cursor: pointer;
+}
+.check-field input { accent-color: var(--accent); }
+.check-field span { font-size: 12.5px; color: var(--fg); }
+
+.wizard-modal { max-width: 520px; }
+.wizard-body { padding: 4px 2px 8px; display: flex; flex-direction: column; gap: 14px; }
+.wizard-lead { font-size: 13px; color: var(--fg-dim); line-height: 1.6; }
+.wizard-lead code {
+  font-size: 11.5px;
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  padding: 1px 6px;
+}
+.wizard-cards { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; }
+.wizard-card {
+  text-align: left;
+  padding: 12px 14px;
+  border-radius: var(--radius);
+  border: 1px solid var(--border-strong);
+  background: var(--panel-2);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  transition: border-color .15s, background .15s;
+}
+.wizard-card.selected { border-color: var(--accent); background: var(--accent-dim); }
+.wizard-card-name { font-size: 13.5px; font-weight: 600; }
+.wizard-card.selected .wizard-card-name { color: var(--accent); }
+.wizard-card-model { font-size: 11.5px; color: var(--fg-dim); }
+.wizard-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.wizard-skip { margin-left: auto; }
+.wizard-result { font-size: 13px; line-height: 1.6; }
+.wizard-result.ok { color: #3fb950; }
+.wizard-result.fail { color: #f85149; }
+
+.entity-item.trend-open { flex-wrap: wrap; }
+.trend-panel {
+  width: 100%;
+  padding: 8px 4px 2px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.trend-bars {
+  display: flex;
+  align-items: flex-end;
+  gap: 3px;
+  min-height: 56px;
+  flex-wrap: wrap;
+}
+.trend-col { display: flex; flex-direction: column; align-items: center; gap: 2px; }
+.trend-bar {
+  width: 10px;
+  background: var(--accent-dim);
+  border: 1px solid var(--accent);
+  border-radius: 2px 2px 0 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  overflow: hidden;
+}
+.trend-bar-fail { width: 100%; background: rgba(248, 81, 73, .75); }
+.trend-date { font-size: 9px; color: var(--fg-dim); }
+
+.check-field { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; cursor: pointer; }
+.check-field input { accent-color: var(--accent); }
+.check-field span { font-size: 12.5px; color: var(--fg); }
+.risk-tool-input { flex: 1; }
+
 .field { display: flex; flex-direction: column; gap: 6px; margin-bottom: 12px; }
 .field:last-child { margin-bottom: 0; }
 .field > span { font-size: 12px; color: var(--fg-dim); }
@@ -1032,8 +1108,8 @@ button:disabled { opacity: 0.45; cursor: default; }
 .run-row:hover .run-summary { color: var(--fg); }
 
 /* SSH 远程主机 */
-.ssh-host-list { display: flex; flex-direction: column; gap: 6px; margin-bottom: 10px; }
-.ssh-host-item {
+.entity-list { display: flex; flex-direction: column; gap: 6px; margin-bottom: 10px; }
+.entity-item {
   display: flex;
   flex-direction: column;
   gap: 6px;
@@ -1042,16 +1118,16 @@ button:disabled { opacity: 0.45; cursor: default; }
   border-radius: 8px;
   background: var(--panel-2);
 }
-.ssh-host-main { display: flex; align-items: center; gap: 8px; min-width: 0; }
-.ssh-enabled-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--border-strong); flex-shrink: 0; }
-.ssh-enabled-dot.on { background: var(--success); }
-.ssh-host-name { font-size: 13px; font-weight: 600; flex-shrink: 0; }
-.ssh-host-meta { font-size: 11.5px; color: var(--fg-dim); font-family: var(--mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.ssh-host-actions { display: flex; gap: 6px; }
+.entity-main { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.entity-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--border-strong); flex-shrink: 0; }
+.entity-dot.on { background: var(--success); }
+.entity-name { font-size: 13px; font-weight: 600; flex-shrink: 0; }
+.entity-meta { font-size: 11.5px; color: var(--fg-dim); font-family: var(--mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.entity-actions { display: flex; gap: 6px; }
 .ssh-test-result { font-size: 11.5px; font-family: var(--mono); }
 .ssh-test-result.ok { color: var(--success); }
 .ssh-test-result.fail { color: var(--danger); }
-.ssh-form { display: flex; flex-direction: column; border: 1px solid var(--border); border-radius: 8px; padding: 12px; margin-bottom: 10px; }
+.entity-form { display: flex; flex-direction: column; border: 1px solid var(--border); border-radius: 8px; padding: 12px; margin-bottom: 10px; }
 .ssh-output {
   margin-top: 10px;
   border: 1px solid var(--border);

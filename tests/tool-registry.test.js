@@ -66,7 +66,7 @@ function withTmp(fn) {
 
 test('safe 工具直接执行，不触发安全确认', async () => {
   await withTmp(async () => {
-    const { registry, fileAgent } = makeRegistry();
+    const { registry, fileAgent: _fileAgent } = makeRegistry();
     const events = [];
     const result = await registry.execute(
       'file.search',
@@ -80,7 +80,7 @@ test('safe 工具直接执行，不触发安全确认', async () => {
 
 test('computer.exec 按 op 分级：safe 直接执行，medium 需确认后执行', async () => {
   await withTmp(async () => {
-    const { registry, gate, computer } = makeRegistry();
+    const { registry, gate } = makeRegistry();
     const events = [];
 
     const safe = await registry.execute(
@@ -113,7 +113,7 @@ test('computer.exec 按 op 分级：safe 直接执行，medium 需确认后执�
 
 test('computer.exec high op 被拒绝时不执行且抛出拒绝错误', async () => {
   await withTmp(async () => {
-    const { registry, gate, computer } = makeRegistry();
+    const { gate, computer } = makeRegistry();
     const events = [];
     let called = 0;
     const spy = { ...computer, execWhitelisted: async (...a) => { called++; return computer.execWhitelisted(...a); } };

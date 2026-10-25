@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import type { CloudProfile, Settings } from '../../shared/types';
 import type { JSX } from 'react';
 import type { CloudPreset } from '../lib/cloudPresets';
@@ -111,7 +111,42 @@ export function SettingsView() {
   const [saved, setSaved] = useState(false);
   const [showKey, setShowKey] = useState(false);
   const [active, setActive] = useState<CategoryId>('models');
+  const [memoryText, setMemoryText] = useState<string | null>(null);
+  const [riskTool, setRiskTool] = useState('');
+  const [riskLevel, setRiskLevel] = useState<'safe' | 'medium' | 'high'>('medium');
   const setNotice = useAppStore((s) => s.setNotice);
+
+  useEffect(() => {
+    if (active === 'automation' && memoryText === null) {
+      void api
+        .memoryGet()
+        .then(setMemoryText)
+        .catch(() => setMemoryText(''));
+    }
+  }, [active, memoryText]);
+
+  async function saveMemory(): Promise<void> {
+    if (memoryText === null) return;
+    try {
+      await api.memorySave(memoryText);
+      setNotice('长期记忆已保存');
+    } catch (err) {
+      setNotice(err instanceof Error ? err.message : String(err));
+    }
+  }
+
+  function addRiskOverride(): void {
+    const tool = riskTool.trim();
+    if (!tool) return;
+    update({ riskOverrides: { ...(form.riskOverrides ?? {}), [tool]: riskLevel } });
+    setRiskTool('');
+  }
+
+  function removeRiskOverride(tool: string): void {
+    const next = { ...(form.riskOverrides ?? {}) };
+    delete next[tool];
+    update({ riskOverrides: next });
+  }
 
   function update(patch: Partial<Settings>): void {
     setForm((f) => ({ ...f, ...patch }));
@@ -485,20 +520,27 @@ export function SettingsView() {
                 </section>
                 <section>
                   <h4>定时任务</h4>
-                  <label className="field">
-                    <span>同时执行任务数（1 = 串行执行）</span>
-                    <select
-                      value={String(form.scheduler.maxConcurrent)}
+                  <p className="field-hint">
+                    调度任务串行执行（并发已固定为 1）；失败任务 15
+                    分钟后自动重试一次，仍失败则终止。
+                  </p>
+                  <label className="check-field">
+                    <input
+                      type="checkbox"
+                      checked={form.tray?.closeToTray ?? true}
+                      onChange={(e) => update({ tray: { closeToTray: e.target.checked } })}
+                    />
+                    <span>关闭窗口时最小化到托盘，任务继续执行</span>
+                  </label>
+                  <label className="check-field">
+                    <input
+                      type="checkbox"
+                      checked={form.notifications?.enabled ?? true}
                       onChange={(e) =>
-                        update({ scheduler: { maxConcurrent: Number(e.target.value) } })
+                        update({ notifications: { enabled: e.target.checked } })
                       }
-                    >
-                      {[1, 2, 3, 4, 5, 6, 7, 8].map((n) => (
-                        <option key={n} value={n}>
-                          {n} 个
-                        </option>
-                      ))}
-                    </select>
+                    />
+                    <span>任务完成与异常时发送系统通知</span>
                   </label>
                 </section>
                 <section>
@@ -516,6 +558,74 @@ export function SettingsView() {
                       ))}
                     </select>
                   </label>
+                </section>
+                <section>
+                  <h4>长期记忆</h4>
+                  <label className="field">
+                    <span>
+                      跨会话记忆（Agent 经 memory.write 追加；注入提示词上限 4000 字符，总量上限
+                      8000）
+                    </span>
+                    <textarea
+                      rows={6}
+                      value={memoryText ?? ''}
+                      onChange={(e) => setMemoryText(e.target.value)}
+                      placeholder="（空）"
+                    />
+                  </label>
+                  <div className="index-row">
+                    <button
+                      className="btn-secondary"
+                      disabled={memoryText === null}
+                      onClick={() => void saveMemory()}
+                    >
+                      保存记忆
+                    </button>
+                    {memoryText !== null && (
+                      <span className="index-status">{memoryText.length} / 8000 字符</span>
+                    )}
+                  </div>
+                </section>
+                <section>
+                  <h4>安全与审计</h4>
+                  <p className="field-hint">
+                    工具风险级覆盖：medium/high 执行前弹确认，safe 自动执行；基线为 high
+                    的工具下调至 safe 时按 medium 生效。审计日志记录于用户数据目录
+                    audit.json（仅 medium/high 操作，环形 500 条）。
+                  </p>
+                  {Object.entries(form.riskOverrides ?? {}).map(([tool, level]) => (
+                    <div key={tool} className="index-row">
+                      <span className="index-status">
+                        {tool} → {level}
+                      </span>
+                      <button className="btn-mini danger" onClick={() => removeRiskOverride(tool)}>
+                        移除
+                      </button>
+                    </div>
+                  ))}
+                  <div className="index-row">
+                    <input
+                      className="risk-tool-input"
+                      value={riskTool}
+                      onChange={(e) => setRiskTool(e.target.value)}
+                      placeholder="工具名，如 computer.exec"
+                    />
+                    <select
+                      value={riskLevel}
+                      onChange={(e) => setRiskLevel(e.target.value as 'safe' | 'medium' | 'high')}
+                    >
+                      <option value="safe">safe</option>
+                      <option value="medium">medium</option>
+                      <option value="high">high</option>
+                    </select>
+                    <button
+                      className="btn-secondary"
+                      disabled={!riskTool.trim()}
+                      onClick={addRiskOverride}
+                    >
+                      添加覆盖
+                    </button>
+                  </div>
                 </section>
               </>
             )}

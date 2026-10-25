@@ -94,14 +94,14 @@ export function SkillsSection() {
         内置技能随应用升级，用户技能可自行导入维护
       </p>
 
-      <div className="ssh-host-list">
+      <div className="entity-list">
         {list.length === 0 && <div className="field-hint">尚未安装技能。</div>}
         {list.map((skill) => (
-          <div key={`${skill.source}-${skill.name}`} className="ssh-host-item">
-            <div className="ssh-host-main">
-              <span className={`ssh-enabled-dot ${skill.enabled ? 'on' : ''}`} />
-              <span className="ssh-host-name">{skill.name}</span>
-              <span className="ssh-host-meta">
+          <div key={`${skill.source}-${skill.name}`} className="entity-item">
+            <div className="entity-main">
+              <span className={`entity-dot ${skill.enabled ? 'on' : ''}`} />
+              <span className="entity-name">{skill.name}</span>
+              <span className="entity-meta">
                 {SOURCE_LABEL[skill.source]}
                 {skill.version ? ` · v${skill.version}` : ''}
                 {skill.engine ? ` · ${skill.engine}` : ''}
@@ -110,7 +110,7 @@ export function SkillsSection() {
                 {skill.enabled ? '已启用' : '已停用'}
               </span>
             </div>
-            <div className="ssh-host-actions">
+            <div className="entity-actions">
               <button
                 className="btn-mini"
                 disabled={busy === skill.name}
@@ -138,13 +138,13 @@ export function SkillsSection() {
       </div>
 
       {detail && (
-        <div className="ssh-form">
-          <div className="ssh-host-main">
-            <span className="ssh-host-name">
+        <div className="entity-form">
+          <div className="entity-main">
+            <span className="entity-name">
               {detail.name}
               {detail.version ? ` v${detail.version}` : ''}
             </span>
-            <span className="ssh-host-meta">{detail.description}</span>
+            <span className="entity-meta">{detail.description}</span>
           </div>
           <pre className="skill-detail-body">{detail.body}</pre>
           {detail.files.length > 0 && (

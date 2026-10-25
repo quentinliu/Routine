@@ -1,10 +1,7 @@
 import { app, dialog, ipcMain, shell as electronShell, type BrowserWindow } from 'electron';
-import fs from 'node:fs';
-import path from 'node:path';
-import { IPC } from '../shared/ipc';
+import { EventPayloadMap, IPC } from '../shared/ipc';
 import {
   AGENT_NAMES,
-  type ChatMessage,
   type ChatSession,
   type DatasourceConfig,
   type Settings,
@@ -12,18 +9,10 @@ import {
   type SshHostConfig,
   type TodoTask
 } from '../shared/types';
-import { Orchestrator, type OrchestratorEvent } from './agent/orchestrator';
+import { OrchestratorEvent } from './agent/orchestrator';
 import { getSafetyGate } from './agent/safety';
-import { ToolRegistry } from './agent/tools/registry';
-import { createBrowserTools } from './agent/tools/builtin/browser';
-import { createComputerTools } from './agent/tools/builtin/computer';
-import { createDbTools } from './agent/tools/builtin/db';
-import { createFileTools } from './agent/tools/builtin/file';
-import { createSkillTools } from './agent/tools/builtin/skill';
-import { createSshTools } from './agent/tools/builtin/ssh';
-import { createTodoTools } from './agent/tools/builtin/todo';
-import { createWebTools } from './agent/tools/builtin/web';
-import { SkillRegistry } from './skills/registry';
+import { getRegistry, getOrchestrator, getSkillRegistry } from './composition';
+import { ChatService } from './services/chatService';
 import { getRouter } from './llm/router';
 import { initMcpService } from './services/mcp/manager';
 import type { McpServerConfig } from '../shared/types';
@@ -32,80 +21,41 @@ import { getComputerService, COMPUTER_OPS } from './services/computer';
 import { getDbService } from './services/db/service';
 import { getFileAgentService } from './services/fileAgent';
 import { getFileIndexService } from './services/fileIndexer';
+import { getInspectionStore } from './services/inspectionStore';
+import { evaluateInspectionAlerts } from './services/inspectionAlerts';
 import { advance, getScheduler } from './services/scheduler';
 import { getStorage, initStorage } from './services/storage';
+import { initAudit } from './services/audit';
+import { initMemory, getMemoryStore } from './services/memory';
+import { notify } from './services/notifier';
+import { isQuitting } from './tray';
 import { getSshService } from './services/ssh/service';
 import { getWebSearchService } from './services/webSearch';
 import { expandHome } from './util/paths';
+import { assertValidSettings } from './util/guards';
 
 let mainWindow: BrowserWindow | null = null;
-let orchestrator: Orchestrator | null = null;
-let toolRegistry: ToolRegistry | null = null;
-let skillRegistry: SkillRegistry | null = null;
 
 export function setMainWindow(win: BrowserWindow | null): void {
   mainWindow = win;
+  if (win) {
+    win.on('close', (e) => {
+      const closeToTray = getStorage().loadSettings().tray?.closeToTray ?? true;
+      if (!isQuitting() && closeToTray) {
+        e.preventDefault();
+        win.hide();
+      }
+    });
+  }
 }
 
-export function sendToRenderer(channel: string, payload: unknown): void {
+export function sendToRenderer<C extends keyof EventPayloadMap>(
+  channel: C,
+  payload: EventPayloadMap[C]
+): void {
   if (mainWindow && !mainWindow.isDestroyed()) {
     mainWindow.webContents.send(channel, payload);
   }
-}
-
-function getRegistry(): ToolRegistry {
-  if (!toolRegistry) {
-    const registry = new ToolRegistry(getSafetyGate());
-    registry.register(...createFileTools(getFileAgentService()));
-    registry.register(...createComputerTools(getComputerService()));
-    registry.register(...createWebTools(getWebSearchService()));
-    registry.register(...createBrowserTools(getBrowserAgentService()));
-    registry.register(...createSshTools(getSshService()));
-    registry.register(...createTodoTools());
-    registry.register(...createDbTools());
-    registry.register(...createSkillTools(getSkillRegistry()));
-    toolRegistry = registry;
-  }
-  return toolRegistry;
-}
-
-function getSkillRegistry(): SkillRegistry {
-  if (!skillRegistry) {
-    const userRoot = path.join(app.getPath('userData'), 'skills');
-    skillRegistry = new SkillRegistry(builtinSkillsRoot(), userRoot, () => {
-      const overrides = getStorage().loadSettings().skillOverrides;
-      return overrides ?? {};
-    });
-  }
-  return skillRegistry;
-}
-
-/** 内置技能根：打包后位于进程资源目录，开发态回退到项目 resources/skills */
-function builtinSkillsRoot(): string {
-  const candidates = [
-    path.join(process.resourcesPath ?? '', 'skills'),
-    path.join(app.getAppPath(), 'resources', 'skills')
-  ].filter((p) => p && p !== 'skills');
-  for (const dir of candidates) {
-    try {
-      if (fs.existsSync(dir)) return dir;
-    } catch {
-      // 无效路径直接尝试下一个候选
-    }
-  }
-  return path.join(app.getAppPath(), 'resources', 'skills');
-}
-
-function getOrchestrator(): Orchestrator {
-  if (!orchestrator) {
-    orchestrator = new Orchestrator({
-      router: getRouter(),
-      safety: getSafetyGate(),
-      registry: getRegistry(),
-      skills: getSkillRegistry()
-    });
-  }
-  return orchestrator;
 }
 
 function resetAgentStatuses(): void {
@@ -144,20 +94,36 @@ function orchestratorEmit(ev: OrchestratorEvent, assistantSink: { text: string }
   }
 }
 
+let chatService: ChatService | null = null;
+
+function getChatService(): ChatService {
+  if (!chatService) {
+    chatService = new ChatService(getOrchestrator(), orchestratorEmit, resetAgentStatuses);
+  }
+  return chatService;
+}
+
 export function registerIpc(): void {
   initStorage(app.getPath('userData'));
+  initMemory(app.getPath('userData'));
+  initAudit(app.getPath('userData'));
   const storage = getStorage();
-  getRouter().configure(storage.loadSettings());
+  const initialSettings = storage.loadSettings();
+  getRouter().configure(initialSettings);
+  getSafetyGate().configure(initialSettings.riskOverrides);
   getBrowserAgentService().configureLLM(getRouter());
 
   ipcMain.handle(IPC.SettingsGet, () => {
     const s = storage.loadSettings();
     getRouter().configure(s);
+    getSafetyGate().configure(s.riskOverrides);
     return s;
   });
   ipcMain.handle(IPC.SettingsSet, (_e, p: { settings: Settings }) => {
+    assertValidSettings(p.settings);
     storage.saveSettings(p.settings);
     getRouter().configure(p.settings);
+    getSafetyGate().configure(p.settings.riskOverrides);
     return storage.loadSettings();
   });
 
@@ -191,57 +157,22 @@ export function registerIpc(): void {
 
   ipcMain.handle(IPC.ChatSend, async (_e, p: { sessionId: string; text: string }) => {
     const text = (p.text ?? '').trim();
-    if (!text) throw new Error('消息不能为空');
+    if (!text) throw new Error('[INVALID] 消息不能为空');
 
-    let session = storage.listSessions().find((s) => s.id === p.sessionId);
-    if (!session) {
-      const now = Date.now();
-      session = { id: p.sessionId, title: '新会话', messages: [], createdAt: now, updatedAt: now };
-    }
-
-    const userMsg: ChatMessage = {
-      id: crypto.randomUUID(),
-      role: 'user',
-      content: text,
-      createdAt: Date.now()
-    };
-    session.messages.push(userMsg);
-    if (session.messages.filter((m) => m.role === 'user').length === 1) {
-      session.title = text.slice(0, 20);
-    }
-    session.updatedAt = Date.now();
-    storage.saveSession(session);
-
-    resetAgentStatuses();
-
-    const sink = { text: '' };
-    try {
-      await getOrchestrator().handleUserMessage(
-        session.id,
-        text,
-        (ev) => orchestratorEmit(ev, sink),
-        session.messages.slice(0, -1)
-      );
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      sendToRenderer(IPC.ChatError, { sessionId: session.id, error: msg });
-      throw err;
-    } finally {
-      if (sink.text.trim()) {
-        session.messages.push({
-          id: crypto.randomUUID(),
-          role: 'assistant',
-          content: sink.text,
-          createdAt: Date.now()
-        });
-        session.updatedAt = Date.now();
-        storage.saveSession(session);
-      }
+    const result = await getChatService().runTurn({
+      sessionId: p.sessionId,
+      text,
+      source: 'chat'
+    });
+    if (!result.ok) {
+      sendToRenderer(IPC.ChatError, { sessionId: result.sessionId, error: result.summary });
+      notify('对话执行失败', result.summary, { dedupeKey: `chat-error:${result.summary}` });
+      throw new Error(`[TURN_FAILED] ${result.summary}`);
     }
   });
 
   ipcMain.handle(IPC.ChatStop, () => {
-    orchestrator?.abort();
+    getOrchestrator().abort();
   });
 
   ipcMain.handle(IPC.SafetyRespond, (_e, p: { requestId: string; approved: boolean }) => {
@@ -251,6 +182,11 @@ export function registerIpc(): void {
   ipcMain.handle(IPC.LlmHealth, () => getRouter().checkHealth());
 
   ipcMain.handle(IPC.LlmHealthClouds, () => getRouter().healthClouds());
+
+  ipcMain.handle(IPC.MemoryGet, () => getMemoryStore().load());
+  ipcMain.handle(IPC.MemorySave, (_e, p: { content: string }) => {
+    getMemoryStore().save(typeof p.content === 'string' ? p.content : '');
+  });
 
   ipcMain.handle(IPC.FileSearch, (_e, p: { query: string; limit?: number }) =>
     getFileAgentService().searchFiles(p.query, p.limit)
@@ -365,6 +301,7 @@ export function registerIpc(): void {
   );
   ipcMain.handle(IPC.DbDelete, (_e, p: { id: string }) => {
     getDbService().remove(p.id);
+    getInspectionStore().deleteForDatasource(p.id);
   });
   ipcMain.handle(IPC.DbTest, (_e, p: { id: string }) => getDbService().test(p.id));
   ipcMain.handle(IPC.InspectionRun, async (_e, p: { datasourceId: string }) => {
@@ -376,11 +313,16 @@ export function registerIpc(): void {
       })
     );
     getStorage().appendInspectionReport(report);
+    evaluateInspectionAlerts(report);
     return report;
   });
   ipcMain.handle(IPC.InspectionReports, (_e, p: { datasourceId?: string }) => {
     const all = getStorage().loadInspections();
     return p.datasourceId ? all.filter((r) => r.datasourceId === p.datasourceId) : all;
+  });
+  ipcMain.handle(IPC.InspectionTrends, (_e, p: { datasourceId: string; days: number }) => {
+    const days = Math.min(365, Math.max(7, Math.floor(Number(p.days) || 90)));
+    return getInspectionStore().dailySeries(p.datasourceId, days);
   });
 
   const skills = getSkillRegistry();
@@ -416,56 +358,26 @@ export function registerIpc(): void {
   ipcMain.handle(IPC.McpDisconnect, (_e, p: { id: string }) => mcp.disconnect(p.id));
 
   app.on('will-quit', () => {
+    getScheduler().stop();
     void mcp.dispose();
     void getDbService().disposeAll();
+    getInspectionStore().checkpoint();
   });
 
   void mcp.autoConnect();
 
   getScheduler().bindRunner({
     runner: async (task, emitLog) => {
-      const now = Date.now();
-      const session: ChatSession = {
-        id: crypto.randomUUID(),
-        title: `[定时] ${task.title}`.slice(0, 24),
-        messages: [],
-        createdAt: now,
-        updatedAt: now
-      };
-      storage.saveSession(session);
-      emitLog(`创建执行会话: ${session.title}`);
-
-      const sink = { text: '' };
-      resetAgentStatuses();
-      let ok = true;
-      try {
-        await getOrchestrator().handleUserMessage(session.id, task.instruction, (ev) =>
-          orchestratorEmit(ev, sink)
-        );
-      } catch (err) {
-        ok = false;
-        emitLog(`执行失败: ${err instanceof Error ? err.message : String(err)}`);
-      }
-      if (sink.text.trim()) {
-        session.messages.push({
-          id: crypto.randomUUID(),
-          role: 'user',
-          content: task.instruction,
-          createdAt: now
-        });
-        session.messages.push({
-          id: crypto.randomUUID(),
-          role: 'assistant',
-          content: sink.text,
-          createdAt: Date.now()
-        });
-        session.updatedAt = Date.now();
-        storage.saveSession(session);
-      }
+      const result = await getChatService().runTurn({
+        text: task.instruction,
+        source: 'scheduled',
+        emitLog
+      });
+      if (!result.ok) emitLog(`执行失败: ${result.summary}`);
       return {
-        sessionId: session.id,
-        ok,
-        summary: ok ? sink.text.slice(0, 200) : '执行失败，详见运行历史'
+        sessionId: result.sessionId,
+        ok: result.ok,
+        summary: result.ok ? result.summary : '执行失败，详见运行历史'
       };
     },
     emitLog: (l) => sendToRenderer(IPC.LogEntry, l),

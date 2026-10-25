@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { useAppStore } from './store';
 import { Topbar } from './components/Topbar';
 import { Sidebar } from './components/Sidebar';
@@ -9,16 +9,20 @@ import { FileSearchDialog } from './components/FileSearchDialog';
 import { TodoDialog } from './components/TodoDialog';
 import { SafetyDialog } from './components/SafetyDialog';
 import { NoticeDialogs } from './components/NoticeDialogs';
+import { OnboardingWizard, onboardingDismissed } from './components/OnboardingWizard';
 
 export function App() {
   const bootstrap = useAppStore((s) => s.bootstrap);
+  const settings = useAppStore((s) => s.settings);
   const settingsOpen = useAppStore((s) => s.settingsOpen);
   const fileDialogOpen = useAppStore((s) => s.fileDialogOpen);
   const todoDialogOpen = useAppStore((s) => s.todoDialogOpen);
   const pendingSafety = useAppStore((s) => s.pendingSafety);
+  const [booted, setBooted] = useState(false);
+  const [wizardOpen, setWizardOpen] = useState(() => !onboardingDismissed());
 
   useEffect(() => {
-    void bootstrap();
+    void bootstrap().finally(() => setBooted(true));
   }, [bootstrap]);
 
   useEffect(() => {
@@ -49,6 +53,12 @@ export function App() {
       {fileDialogOpen && <FileSearchDialog />}
       {todoDialogOpen && <TodoDialog />}
       {pendingSafety && <SafetyDialog request={pendingSafety} />}
+      {booted &&
+        wizardOpen &&
+        settings.providerMode === 'cloud' &&
+        settings.cloudProfiles.every((p) => !p.apiKey.trim()) && (
+          <OnboardingWizard onDone={() => setWizardOpen(false)} />
+        )}
       <NoticeDialogs />
     </div>
   );

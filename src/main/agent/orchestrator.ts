@@ -8,7 +8,9 @@ import type {
 } from '../../shared/types';
 import type { LLMRouter } from '../llm/router';
 import type { LLMChatMessage, LLMResponse } from '../llm/provider';
+import { LlmHttpError } from '../llm/openaiCompat';
 import { COMPUTER_OPS } from '../services/computer';
+import { getMemoryStore } from '../services/memory';
 import type { SkillRegistry } from '../skills/registry';
 import type { SafetyGate } from './safety';
 import type { ToolRegistry } from './tools/registry';
@@ -64,10 +66,13 @@ ${OP_LIST_TEXT}
 - db.exec {datasourceId, sql, reason} — 执行写操作/管理语句（KILL 会话等），需用户确认
 - skill.run {skill, datasourceId} — 激活运维技能，返回完整操作手册；用户需求匹配技能目录中的场景时优先调用
 - skill.read {skill, path} — 读取技能的 references 附加文档
+- memory.write {content} — 把值得跨会话长期记住的信息（用户偏好/项目背景/重要约定）写入长期记忆，每次一条要点
 
 ${'{MCP_TOOLS}'}
 
 ${'{SKILLS}'}
+
+${'{MEMORY}'}
 
 ${'{SSH_HOSTS}'}
 
@@ -101,11 +106,14 @@ ${TODO_RULE}
 
 ${'{SKILLS}'}
 
+${'{MEMORY}'}
+
 ${'{SSH_HOSTS}'}`;
 
 const SSH_HOSTS_PLACEHOLDER = '{SSH_HOSTS}';
 const MCP_TOOLS_PLACEHOLDER = '{MCP_TOOLS}';
 const SKILLS_PLACEHOLDER = '{SKILLS}';
+const MEMORY_PLACEHOLDER = '{MEMORY}';
 
 const FINAL_SYSTEM =
   '你是 Routine 主 Agent。用中文直接、简洁地回答用户，合理利用已获得的工具结果。使用 Markdown 格式，重点信息可用列表呈现。';
@@ -117,8 +125,7 @@ function truncateResult(value: unknown, limit: number): string {
 }
 
 function isToolsUnsupportedError(err: unknown): boolean {
-  const msg = err instanceof Error ? err.message : String(err);
-  return /HTTP (400|404|422)\b/.test(msg);
+  return err instanceof LlmHttpError && [400, 404, 422].includes(err.status);
 }
 
 export class Orchestrator {
@@ -204,14 +211,21 @@ export class Orchestrator {
         : '（当前没有已连接的 MCP 扩展工具）';
     return PLANNING_SYSTEM.replace(MCP_TOOLS_PLACEHOLDER, mcpBlock)
       .replace(SKILLS_PLACEHOLDER, this.skillsCatalog())
+      .replace(MEMORY_PLACEHOLDER, this.memoryBlock())
       .replace(SSH_HOSTS_PLACEHOLDER, this.promptContextBlocks());
   }
 
   private fcSystem(): string {
-    return FC_SYSTEM.replace(SKILLS_PLACEHOLDER, this.skillsCatalog()).replace(
-      SSH_HOSTS_PLACEHOLDER,
-      this.promptContextBlocks()
-    );
+    return FC_SYSTEM.replace(SKILLS_PLACEHOLDER, this.skillsCatalog())
+      .replace(MEMORY_PLACEHOLDER, this.memoryBlock())
+      .replace(SSH_HOSTS_PLACEHOLDER, this.promptContextBlocks());
+  }
+
+  private memoryBlock(): string {
+    const raw = getMemoryStore().load().trim();
+    if (!raw) return '（暂无长期记忆）';
+    const text = raw.length > 4000 ? `${raw.slice(0, 4000)}\n…（已截断）` : raw;
+    return `长期记忆（跨会话保留的用户偏好与项目背景，供参考）：\n${text}`;
   }
 
   private maxSteps(): number {
@@ -252,6 +266,7 @@ export class Orchestrator {
 
     let resultText: string;
     let failed = false;
+    let denied = false;
     const started = Date.now();
     try {
       if (!def) throw new Error(`未知工具 ${call.name}，请从白名单中选择`);
@@ -265,7 +280,10 @@ export class Orchestrator {
     } catch (err) {
       failed = true;
       const msg = err instanceof Error ? err.message : String(err);
-      resultText = `工具执行失败: ${msg}`;
+      denied = msg.includes('拒绝');
+      resultText = denied
+        ? `用户拒绝了该工具调用（${msg}）。不要原样重试，改用其他思路`
+        : `工具执行失败: ${msg}`;
       if (def) {
         this.status(emit, def.agent, 'error', msg);
         this.log(emit, def.agent, `${call.name} 失败: ${msg}`, 'error');
@@ -283,10 +301,16 @@ export class Orchestrator {
 
     const key = JSON.stringify([call.name, call.args]);
     if (failed) {
-      failState.count = failState.key === key ? failState.count + 1 : 1;
-      failState.key = key;
-      if (failState.count >= FAIL_CLAMP_THRESHOLD) {
-        resultText += `（提示：该调用已连续失败 ${failState.count} 次，请更换思路或工具）`;
+      if (denied) {
+        // 用户拒绝属策略性失败：不计入连续失败钳制
+        failState.key = null;
+        failState.count = 0;
+      } else {
+        failState.count = failState.key === key ? failState.count + 1 : 1;
+        failState.key = key;
+        if (failState.count >= FAIL_CLAMP_THRESHOLD) {
+          resultText += `（提示：该调用已连续失败 ${failState.count} 次，请更换思路或工具）`;
+        }
       }
     } else {
       failState.key = null;
@@ -342,6 +366,8 @@ export class Orchestrator {
     let finalText: string | null = null;
     // 任务级锁定模型：单次任务全程使用同一档案，任务失败/结束后方可切换
     const provider = await this.deps.router.getActive();
+    // 兜底摘要的数据源：运行态工具结果，与 LLM 消息格式（策略内部实现）解耦
+    const taskObservations: { tool: string; resultText: string }[] = [];
 
     try {
       for (let round = 0; round < steps && !this.aborted; round++) {
@@ -410,6 +436,9 @@ export class Orchestrator {
           }
           observations.push(await this.executeCall(emit, sessionId, msgId, call, failState));
         }
+        for (const o of observations) {
+          taskObservations.push({ tool: o.call.name, resultText: o.resultText });
+        }
 
         strategy.commitStep(messages, step, observations);
       }
@@ -421,15 +450,8 @@ export class Orchestrator {
 
       if (!finalText) {
         this.status(emit, 'main', 'thinking', '正在生成回答');
-        const digest = messages
-          .filter(
-            (m) =>
-              m.role === 'user' &&
-              typeof m.content === 'string' &&
-              m.content.startsWith('工具结果:')
-          )
-          .map((m) => m.content as string)
-          .join('\n');
+        let digest = taskObservations.map((o) => `${o.tool}: ${o.resultText}`).join('\n');
+        if (digest.length > 12000) digest = `${digest.slice(0, 12000)}\n…（已截断）`;
         const res = await provider.chatStream(
           {
             system: FINAL_SYSTEM,

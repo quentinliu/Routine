@@ -15,6 +15,7 @@ import type {
   IndexProgress,
   InspectionProgressEvent,
   InspectionReport,
+  InspectionTrend,
   LogEntry,
   McpServerInfo,
   McpServerConfig,
@@ -57,6 +58,10 @@ export const IPC = {
   LlmHealth: 'llm:health',
   // 云端模型档案逐个可用性检测（M1 契约批准 2026-10-24，见 CONTRACTS.md 变更记录）
   LlmHealthClouds: 'llm:health-clouds',
+  // 长期记忆 / 巡检趋势（M2 契约批准 2026-10-24，见 CONTRACTS.md 变更记录）
+  MemoryGet: 'memory:get',
+  MemorySave: 'memory:save',
+  InspectionTrends: 'inspection:trends',
   OpenExternal: 'app:open-external',
   TodoList: 'todo:list',
   TodoSave: 'todo:save',
@@ -107,6 +112,20 @@ export interface LlmHealth {
   local: boolean;
 }
 
+/** 事件通道 → 载荷类型映射（M3 契约批准 2026-10-24，见 CONTRACTS.md 变更记录） */
+export interface EventPayloadMap {
+  [IPC.ChatDelta]: ChatDeltaEvent;
+  [IPC.ChatError]: ChatErrorEvent;
+  [IPC.AgentStatus]: AgentStatus;
+  [IPC.AgentTrace]: AgentTraceEvent;
+  [IPC.TodoUpdate]: TodoUpdateEvent;
+  [IPC.SafetyRequest]: SafetyRequest;
+  [IPC.LogEntry]: LogEntry;
+  [IPC.IndexProgress]: IndexProgress;
+  [IPC.TodoRunsChanged]: undefined;
+  [IPC.InspectionProgress]: InspectionProgressEvent;
+}
+
 /**
  * preload 暴露到 window.api 的完整客户端接口。
  * 事件订阅函数返回取消订阅函数。
@@ -133,6 +152,9 @@ export interface RoutineApi {
   llmHealth(): Promise<LlmHealth>;
   /** 逐个探测全部云端档案可用性（key = profile.id）；不含本地 Ollama */
   llmHealthClouds(): Promise<Record<string, boolean>>;
+  memoryGet(): Promise<string>;
+  memorySave(content: string): Promise<void>;
+  inspectionTrends(datasourceId: string, days: number): Promise<InspectionTrend>;
   openExternal(url: string): Promise<void>;
   todoList(): Promise<{ tasks: TodoTask[]; runs: TodoRunRecord[] }>;
   todoSave(task: TodoTask): Promise<TodoTask>;

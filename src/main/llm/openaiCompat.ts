@@ -28,6 +28,17 @@ interface ToolCallAccumulator {
   arguments: string;
 }
 
+/** 带 HTTP 状态码的 LLM 错误：调用方按 status 做结构化判定（如 FC 降级），不再解析消息文本 */
+export class LlmHttpError extends Error {
+  constructor(
+    message: string,
+    readonly status: number
+  ) {
+    super(message);
+    this.name = 'LlmHttpError';
+  }
+}
+
 export async function* sseLines(res: Response): AsyncGenerator<string> {
   const reader = res.body?.getReader();
   if (!reader) throw new Error('响应无内容流');
@@ -84,7 +95,10 @@ export class OpenAICompatProvider implements LLMProvider {
 
     if (!res.ok) {
       const text = await res.text().catch(() => '');
-      throw new Error(`${this.id} 请求失败 HTTP ${res.status}: ${text.slice(0, 200)}`);
+      throw new LlmHttpError(
+        `${this.id} 请求失败 HTTP ${res.status}: ${text.slice(0, 200)}`,
+        res.status
+      );
     }
 
     let content = '';
@@ -128,7 +142,7 @@ export class OpenAICompatProvider implements LLMProvider {
     if (toolAcc.size > 0) {
       toolCalls = [...toolAcc.entries()]
         .sort((a, b) => a[0] - b[0])
-        .map(([i, acc], n) => ({
+        .map(([, acc], n) => ({
           id: acc.id || `call_${n}`,
           name: acc.name,
           arguments: acc.arguments || '{}'

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import type { SshExecResult, SshHostConfig, SshTestResult } from '../../shared/types';
 import { api } from '../ipc';
 import { useAppStore } from '../store';
+import { useEntityForm } from '../lib/useEntityForm';
 
 type FormState = {
   id: string;
@@ -49,7 +50,7 @@ function toForm(host: SshHostConfig): FormState {
 
 export function SshSection() {
   const [hosts, setHosts] = useState<SshHostConfig[]>([]);
-  const [form, setForm] = useState<FormState | null>(null);
+  const { form, setForm, update } = useEntityForm<FormState>(null);
   const [showPassword, setShowPassword] = useState(false);
   const [saving, setSaving] = useState(false);
   const [testingId, setTestingId] = useState<string | null>(null);
@@ -68,11 +69,6 @@ export function SshSection() {
 
   const enabledHosts = useMemo(() => hosts.filter((h) => h.enabled), [hosts]);
   const execHost = enabledHosts.find((h) => h.id === execHostId) ?? null;
-
-  function update(patch: Partial<FormState>): void {
-    setForm((f) => (f ? { ...f, ...patch } : f));
-  }
-
   async function refresh(): Promise<SshHostConfig[]> {
     const list = await api.sshList();
     setHosts(list);
@@ -171,20 +167,20 @@ export function SshSection() {
     <section>
       <h4>SSH 远程主机</h4>
 
-      <div className="ssh-host-list">
+      <div className="entity-list">
         {hosts.length === 0 && <div className="field-hint">尚未配置主机，点击下方按钮新增。</div>}
         {hosts.map((host) => {
           const result = testResults[host.id];
           return (
-            <div key={host.id} className="ssh-host-item">
-              <div className="ssh-host-main">
-                <span className={`ssh-enabled-dot ${host.enabled ? 'on' : ''}`} title={host.enabled ? '已启用' : '已禁用'} />
-                <span className="ssh-host-name">{host.name}</span>
-                <span className="ssh-host-meta">
+            <div key={host.id} className="entity-item">
+              <div className="entity-main">
+                <span className={`entity-dot ${host.enabled ? 'on' : ''}`} title={host.enabled ? '已启用' : '已禁用'} />
+                <span className="entity-name">{host.name}</span>
+                <span className="entity-meta">
                   {host.user}@{host.host}:{host.port} · {host.authType === 'password' ? '密码' : '密钥'}
                 </span>
               </div>
-              <div className="ssh-host-actions">
+              <div className="entity-actions">
                 <button className="btn-mini" disabled={testingId === host.id} onClick={() => void test(host)}>
                   {testingId === host.id ? '测试中…' : '测试'}
                 </button>
@@ -213,7 +209,7 @@ export function SshSection() {
       )}
 
       {form && (
-        <div className="ssh-form">
+        <div className="entity-form">
           <label className="field">
             <span>名称</span>
             <input value={form.name} onChange={(e) => update({ name: e.target.value })} placeholder="生产服务器" />

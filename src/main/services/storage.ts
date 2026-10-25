@@ -16,6 +16,8 @@ import {
   type TodoRunRecord,
   type TodoTask
 } from '../../shared/types';
+import { initInspectionStore, getInspectionStore } from './inspectionStore';
+import { decryptSecret, encryptSecret } from '../util/cryptoBox';
 
 const SEARCH_PROVIDERS: SearchProvider[] = ['auto', 'bing', 'tavily'];
 
@@ -24,12 +26,10 @@ const SESSIONS_FILE = 'sessions.json';
 const INDEX_FILE = 'file-index.json';
 const TODOS_FILE = 'todos.json';
 const DATASOURCES_FILE = 'datasources.json';
-const INSPECTIONS_FILE = 'inspections.json';
 const SSH_HOSTS_FILE = 'ssh-hosts.json';
 const MCP_SERVERS_FILE = 'mcp-servers.json';
 
 const MAX_TODO_RUNS = 300;
-const MAX_REPORTS_PER_DATASOURCE = 200;
 
 interface TodosFileShape {
   tasks: TodoTask[];
@@ -60,10 +60,28 @@ export class StorageService {
   }
 
   private readJson<T>(name: string, fallback: T): T {
+    const file = this.filePath(name);
+    let raw: string;
     try {
-      const raw = fs.readFileSync(this.filePath(name), 'utf-8');
+      raw = fs.readFileSync(file, 'utf-8');
+    } catch (err) {
+      // 首次运行文件不存在属正常；其他读取异常（权限等）告警后走默认值
+      if ((err as NodeJS.ErrnoException).code !== 'ENOENT') {
+        console.warn(`[storage] ${name} 读取失败: ${err instanceof Error ? err.message : String(err)}`);
+      }
+      return fallback;
+    }
+    try {
       return JSON.parse(raw) as T;
-    } catch {
+    } catch (err) {
+      // 解析失败：改名保留坏文件供用户排查，防止被下次写入永久覆盖
+      const backup = `${file}.corrupt-${Date.now()}`;
+      try {
+        fs.renameSync(file, backup);
+        console.warn(`[storage] ${name} 解析失败，已改名保留为 ${path.basename(backup)}: ${err instanceof Error ? err.message : String(err)}`);
+      } catch {
+        console.warn(`[storage] ${name} 解析失败且备份改名失败: ${err instanceof Error ? err.message : String(err)}`);
+      }
       return fallback;
     }
   }
@@ -128,7 +146,12 @@ export class StorageService {
           ? Math.min(8, Math.max(1, Math.floor(rawConcurrent)))
           : DEFAULT_SETTINGS.scheduler.maxConcurrent
       },
-      siteCredentials: saved.siteCredentials ?? DEFAULT_SETTINGS.siteCredentials,
+      siteCredentials: Object.fromEntries(
+        Object.entries(saved.siteCredentials ?? {}).map(([site, c]) => [
+          site,
+          { ...c, password: decryptSecret(c.password) }
+        ])
+      ),
       agent: {
         maxSteps: Number.isFinite(rawMaxSteps)
           ? Math.min(30, Math.max(2, Math.floor(rawMaxSteps)))
@@ -138,7 +161,13 @@ export class StorageService {
   }
 
   saveSettings(settings: Settings): void {
-    this.writeJson(SETTINGS_FILE, settings);
+    const credentials = Object.fromEntries(
+      Object.entries(settings.siteCredentials ?? {}).map(([site, c]) => [
+        site,
+        { ...c, password: encryptSecret(c.password) }
+      ])
+    );
+    this.writeJson(SETTINGS_FILE, { ...settings, siteCredentials: credentials });
   }
 
   listSessions(): ChatSession[] {
@@ -175,7 +204,8 @@ export class StorageService {
   }
 
   saveTodos(tasks: TodoTask[], runs: TodoRunRecord[]): void {
-    const trimmed = runs
+    // 复制后排序：不改变调用方传入数组的顺序
+    const trimmed = [...runs]
       .sort((a, b) => b.startedAt - a.startedAt)
       .slice(0, MAX_TODO_RUNS);
     this.writeJson(TODOS_FILE, { tasks, runs: trimmed });
@@ -183,45 +213,40 @@ export class StorageService {
 
   loadDatasources(): DatasourceConfig[] {
     const saved = this.readJson<DatasourceConfig[]>(DATASOURCES_FILE, []);
-    return Array.isArray(saved) ? saved : [];
+    return (Array.isArray(saved) ? saved : []).map((d) => ({
+      ...d,
+      password: decryptSecret(d.password ?? '')
+    }));
   }
 
   saveDatasources(list: DatasourceConfig[]): void {
-    this.writeJson(DATASOURCES_FILE, list);
+    this.writeJson(
+      DATASOURCES_FILE,
+      list.map((d) => ({ ...d, password: encryptSecret(d.password) }))
+    );
   }
 
   loadInspections(): InspectionReport[] {
-    const saved = this.readJson<InspectionReport[]>(INSPECTIONS_FILE, []);
-    return Array.isArray(saved) ? saved : [];
+    return getInspectionStore().listReports();
   }
 
   appendInspectionReport(report: InspectionReport): void {
-    const all = this.loadInspections();
-    all.push(report);
-    const byDatasource = new Map<string, InspectionReport[]>();
-    for (const r of all) {
-      const bucket = byDatasource.get(r.datasourceId) ?? [];
-      bucket.push(r);
-      byDatasource.set(r.datasourceId, bucket);
-    }
-    const trimmed: InspectionReport[] = [];
-    for (const bucket of byDatasource.values()) {
-      trimmed.push(
-        ...bucket
-          .sort((a, b) => b.startedAt - a.startedAt)
-          .slice(0, MAX_REPORTS_PER_DATASOURCE)
-      );
-    }
-    this.writeJson(INSPECTIONS_FILE, trimmed);
+    getInspectionStore().appendReport(report);
   }
 
   loadSshHosts(): SshHostConfig[] {
     const saved = this.readJson<SshHostConfig[]>(SSH_HOSTS_FILE, []);
-    return Array.isArray(saved) ? saved : [];
+    return (Array.isArray(saved) ? saved : []).map((h) => ({
+      ...h,
+      password: decryptSecret(h.password ?? '')
+    }));
   }
 
   saveSshHosts(list: SshHostConfig[]): void {
-    this.writeJson(SSH_HOSTS_FILE, list);
+    this.writeJson(
+      SSH_HOSTS_FILE,
+      list.map((h) => ({ ...h, password: encryptSecret(h.password ?? '') }))
+    );
   }
 
   loadMcpServers(): McpServerConfig[] {
@@ -262,6 +287,7 @@ let storage: StorageService | null = null;
 
 export function initStorage(dir: string): StorageService {
   storage = new StorageService(dir);
+  initInspectionStore(dir);
   return storage;
 }
 

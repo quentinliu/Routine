@@ -74,7 +74,7 @@ export async function bingSearch(
   for (const block of blocks) {
     const linkMatch = block.match(/<h2[^>]*>\s*<a[^>]+href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/i);
     if (!linkMatch) continue;
-    let link = linkMatch[1];
+    const link = linkMatch[1];
     const title = stripTags(linkMatch[2]);
     if (!/^https?:\/\//i.test(link) || !title || seen.has(link)) continue;
     seen.add(link);

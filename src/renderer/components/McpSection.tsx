@@ -2,6 +2,8 @@ import { useEffect, useState, type ClipboardEvent } from 'react';
 import type { McpServerConfig, McpServerInfo, McpTestResult, McpTransport } from '../../shared/types';
 import { api } from '../ipc';
 import { useAppStore } from '../store';
+import { parseKeyValue, parseMcpJson, splitCommandLine, type ImportedServer } from '../lib/mcpParse';
+import { useEntityForm } from '../lib/useEntityForm';
 
 type FormState = {
   id: string;
@@ -51,109 +53,6 @@ function toForm(config: McpServerConfig): FormState {
   };
 }
 
-function parseKeyValue(text: string, sep: '=' | ':'): Record<string, string> {
-  const out: Record<string, string> = {};
-  for (const line of text.split('\n')) {
-    const trimmed = line.trim();
-    if (!trimmed) continue;
-    const idx = trimmed.indexOf(sep);
-    if (idx <= 0) continue;
-    const key = trimmed.slice(0, idx).trim();
-    const value = trimmed.slice(idx + sep.length).trim();
-    if (key) out[key] = value;
-  }
-  return out;
-}
-
-/** 按空白拆分命令行，双/单引号包裹的内容视为一个参数 */
-function splitCommandLine(input: string): string[] {
-  const out: string[] = [];
-  let cur = '';
-  let quote: '"' | "'" | null = null;
-  for (const ch of input) {
-    if (quote) {
-      if (ch === quote) quote = null;
-      else cur += ch;
-    } else if (ch === '"' || ch === "'") {
-      quote = ch;
-    } else if (/\s/.test(ch)) {
-      if (cur) {
-        out.push(cur);
-        cur = '';
-      }
-    } else {
-      cur += ch;
-    }
-  }
-  if (cur) out.push(cur);
-  return out;
-}
-
-interface ImportedServer {
-  name: string;
-  command?: string;
-  args?: string[];
-  env?: Record<string, string>;
-  url?: string;
-  headers?: Record<string, string>;
-}
-
-/** 解析 Claude Desktop / Cursor 的 mcpServers JSON、VS Code 的 servers JSON 或裸 server 对象 */
-function parseMcpJson(text: string): { server: ImportedServer; total: number } {
-  const raw: unknown = JSON.parse(text);
-  if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) {
-    throw new Error('JSON 顶层必须是对象');
-  }
-  const obj = raw as Record<string, unknown>;
-  let entries: Array<[string, unknown]> | null = null;
-  for (const key of ['mcpServers', 'servers']) {
-    const group = obj[key];
-    if (typeof group === 'object' && group !== null && !Array.isArray(group)) {
-      entries = Object.entries(group as Record<string, unknown>);
-      break;
-    }
-  }
-  let name = '';
-  let server: Record<string, unknown>;
-  if (entries) {
-    const first = entries[0];
-    if (!first) throw new Error('JSON 中没有可导入的服务');
-    name = String(first[0] ?? '');
-    server = (first[1] ?? {}) as Record<string, unknown>;
-  } else {
-    server = obj;
-  }
-  const command = typeof server.command === 'string' ? server.command.trim() : '';
-  const url = typeof server.url === 'string' ? server.url.trim() : '';
-  const args = Array.isArray(server.args) ? server.args.map(String) : [];
-  const pickRecord = (v: unknown): Record<string, string> => {
-    if (typeof v !== 'object' || v === null || Array.isArray(v)) return {};
-    const out: Record<string, string> = {};
-    for (const [k, val] of Object.entries(v)) out[k] = String(val);
-    return out;
-  };
-  if (!command && !url) {
-    throw new Error('JSON 缺少 command（stdio）或 url（http）字段');
-  }
-  if (!name) {
-    name = command
-      ? (args.find((a) => !a.startsWith('-') && a !== command) ?? command)
-      : new URL(url).hostname;
-  }
-  name = name.replace(/^@[^/]+\//, '').replace(/[^a-zA-Z0-9_-]/g, '-').slice(0, 64) || 'imported';
-  return {
-    server: {
-      name,
-      command: command || undefined,
-      args: args.length > 0 ? args : undefined,
-      env: pickRecord(server.env),
-      url: url || undefined,
-      headers: pickRecord(server.headers)
-    },
-    total: entries ? entries.length : 1
-  };
-}
-
 const STATE_LABEL: Record<McpServerInfo['state'], string> = {
   connected: '已连接',
   connecting: '连接中…',
@@ -163,7 +62,7 @@ const STATE_LABEL: Record<McpServerInfo['state'], string> = {
 
 export function McpSection() {
   const [servers, setServers] = useState<McpServerInfo[]>([]);
-  const [form, setForm] = useState<FormState | null>(null);
+  const { form, setForm, update } = useEntityForm<FormState>(null);
   const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<McpTestResult | null>(null);
@@ -180,10 +79,6 @@ export function McpSection() {
     const list = await api.mcpList().catch(() => []);
     setServers(list);
     return list;
-  }
-
-  function update(patch: Partial<FormState>): void {
-    setForm((f) => (f ? { ...f, ...patch } : f));
   }
 
   function applyImported(server: ImportedServer): void {
@@ -341,17 +236,17 @@ export function McpSection() {
         接入外部 MCP server 后，其工具自动注册为 Agent 可调用的扩展工具（默认每次调用需确认）
       </p>
 
-      <div className="ssh-host-list">
+      <div className="entity-list">
         {servers.length === 0 && <div className="field-hint">尚未配置服务，点击下方按钮新增。</div>}
         {servers.map((server) => (
-          <div key={server.config.id} className="ssh-host-item">
-            <div className="ssh-host-main">
+          <div key={server.config.id} className="entity-item">
+            <div className="entity-main">
               <span
-                className={`ssh-enabled-dot ${server.state === 'connected' ? 'on' : ''}`}
+                className={`entity-dot ${server.state === 'connected' ? 'on' : ''}`}
                 title={STATE_LABEL[server.state]}
               />
-              <span className="ssh-host-name">{server.config.name}</span>
-              <span className="ssh-host-meta">
+              <span className="entity-name">{server.config.name}</span>
+              <span className="entity-meta">
                 {server.config.transport === 'stdio'
                   ? `stdio · ${server.config.command}`
                   : `http · ${server.config.url}`}{' '}
@@ -359,7 +254,7 @@ export function McpSection() {
                 {server.error ? `（${server.error}）` : ''}
               </span>
             </div>
-            <div className="ssh-host-actions">
+            <div className="entity-actions">
               <button
                 className="btn-mini"
                 disabled={busyId === server.config.id || server.state === 'connecting'}
@@ -396,7 +291,7 @@ export function McpSection() {
       )}
 
       {form && (
-        <div className="ssh-form">
+        <div className="entity-form">
           <label className="field">
             <span>名称（英文数字连字符，用于生成工具名）</span>
             <input

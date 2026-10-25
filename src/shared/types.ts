@@ -60,6 +60,12 @@ export interface Settings {
   agent: AgentConfig;
   /** 技能启用状态覆盖（key = skill name；缺省视为启用；S1 契约） */
   skillOverrides?: Record<string, boolean>;
+  /** 托盘行为；缺省 closeToTray: true（M2 契约批准 2026-10-24，见 CONTRACTS.md 变更记录） */
+  tray?: { closeToTray: boolean };
+  /** 系统通知开关；缺省 enabled: true（M2） */
+  notifications?: { enabled: boolean };
+  /** 工具风险级覆盖（key = 工具名；基线 high 不可下调至 safe，未知工具忽略；M2） */
+  riskOverrides?: Record<string, 'safe' | 'medium' | 'high'>;
 }
 
 // indexDirs 中的 "~" 由主进程在读取后展开为 os.homedir()
@@ -189,6 +195,8 @@ export interface SafetyRequest {
   plan: string[];
   riskLevel: 'medium' | 'high';
   createdAt: number;
+  /** 触发审批的工具名（M2 契约批准 2026-10-24，审计归因用） */
+  tool?: string;
 }
 
 export interface WebSearchResult {
@@ -326,6 +334,22 @@ export interface InspectionProgressEvent {
   reportId: string;
   checkId: string;
   status: CheckStatus;
+}
+
+// 巡检趋势（M2 契约批准 2026-10-24，见 CONTRACTS.md 变更记录）
+export interface DailyPoint {
+  /** 'YYYY-MM-DD'（本地时区） */
+  date: string;
+  /** 巡检次数 */
+  count: number;
+  /** 失败次数 */
+  failures: number;
+  avgDurationMs: number;
+}
+
+export interface InspectionTrend {
+  datasourceId: string;
+  days: DailyPoint[];
 }
 
 // ===== SSH 远程主机（P1.5 契约批准 2026-10-16，见 CONTRACTS.md 变更记录）=====

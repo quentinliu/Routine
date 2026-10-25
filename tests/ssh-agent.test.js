@@ -17,6 +17,7 @@ const { createWebTools } = require('../dist-main/main/agent/tools/builtin/web.js
 const { createBrowserTools } = require('../dist-main/main/agent/tools/builtin/browser.js');
 const { createSshTools } = require('../dist-main/main/agent/tools/builtin/ssh.js');
 const { initStorage } = require('../dist-main/main/services/storage.js');
+const { initMemory } = require('../dist-main/main/services/memory.js');
 
 const HOST_KEY = utils.generateKeyPairSync('ed25519');
 const PASSWORD = 'pw-agent';
@@ -79,7 +80,7 @@ function makeOrchestrator(svc, gate, script) {
   const events = [];
   const router = {
     getActive: async () => ({
-      chatStream: async (opts, onDelta) => {
+      chatStream: async (_opts, _onDelta) => {
         const next = script[Math.min(step++, script.length - 1)];
         return { content: next };
       }
@@ -111,6 +112,7 @@ async function runAgent(svc, gate, script) {
 test('SSH Agent 全链路：规划 → 确认 → 远程执行 → 最终回答', async () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'routine-ssh-agent-'));
   initStorage(dir);
+  initMemory(dir);
   const gate = new SafetyGate();
   const svc = new SshService();
   const { server, executed } = startFakeSshd();
@@ -153,6 +155,7 @@ test('SSH Agent 全链路：规划 → 确认 → 远程执行 → 最终回答'
 test('SSH Agent：用户拒绝确认后不执行且流程继续', async () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'routine-ssh-agent-'));
   initStorage(dir);
+  initMemory(dir);
   const gate = new SafetyGate();
   const svc = new SshService();
   const { server, executed } = startFakeSshd();
@@ -187,6 +190,7 @@ test('SSH Agent：用户拒绝确认后不执行且流程继续', async () => {
 test('规划系统提示词注入当前主机清单', () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'routine-ssh-agent-'));
   initStorage(dir);
+  initMemory(dir);
   const svc = new SshService();
   svc.saveHost({
     id: '', name: '生产服务器', host: '10.1.1.1', port: 22, user: 'root',

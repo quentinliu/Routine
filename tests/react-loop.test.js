@@ -16,6 +16,7 @@ const { createSshTools } = require('../dist-main/main/agent/tools/builtin/ssh.js
 const { createTodoTools } = require('../dist-main/main/agent/tools/builtin/todo.js');
 const { OpenAICompatProvider } = require('../dist-main/main/llm/openaiCompat.js');
 const { initStorage } = require('../dist-main/main/services/storage.js');
+const { initMemory } = require('../dist-main/main/services/memory.js');
 
 function scriptedProvider(scripts) {
   const requests = [];
@@ -76,6 +77,7 @@ function makeRegistry(over = {}) {
 function withTmp(fn) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'routine-react-loop-'));
   initStorage(dir);
+  initMemory(dir);
   try {
     return fn();
   } finally {
@@ -106,7 +108,7 @@ test('FC 全链路：tools 下发 → tool_calls 执行 → tool 角色回灌 �
     assert.deepStrictEqual(calls.web, [['AI 新闻', 6]]);
 
     assert.ok(provider.requests[0].tools, 'FC 请求应携带 tools');
-    assert.ok(provider.requests[0].tools.length === 9);
+    assert.ok(provider.requests[0].tools.length === 9, 'FC 工具数应与测试注册表一致');
     assert.ok(!provider.requests[0].jsonMode, 'FC 请求不应带 jsonMode');
     assert.ok(provider.requests[0].system.includes('function calling'));
 
@@ -140,7 +142,10 @@ test('FC 请求 4xx 自动降级文本协议并继续完成任务', async () => 
       chatStream: async (req) => {
         provider.requests.push({ ...req, messages: [...req.messages] });
         call++;
-        if (call === 1) throw new Error('fake 请求失败 HTTP 400: tools is not supported');
+        if (call === 1) {
+          const { LlmHttpError } = require('../dist-main/main/llm/openaiCompat.js');
+          throw new LlmHttpError('fake 请求失败 HTTP 400: tools is not supported', 400);
+        }
         return {
           content: '{"thought":"直接回答","action":null,"final":"文本协议完成"}',
           finishReason: 'stop'
@@ -391,4 +396,39 @@ test('openaiCompat 流式聚合分片 tool_calls 并透传 signal', async () => 
   } finally {
     globalThis.fetch = originalFetch;
   }
+});
+
+test('FC 兜底：步数耗尽时最终回答携带全部工具结果（不丢 observations）', async () => {
+  await withTmp(async () => {
+    const { registry, calls } = makeRegistry();
+    const provider = scriptedProvider([
+      {
+        content: '我先搜索',
+        finishReason: 'tool_calls',
+        toolCalls: [{ id: 'c1', name: 'search.web', arguments: '{"query":"AI 新闻"}' }]
+      },
+      {
+        content: '我再搜一次',
+        finishReason: 'tool_calls',
+        toolCalls: [{ id: 'c2', name: 'search.web', arguments: '{"query":"AI 新闻 2"}' }]
+      },
+      { content: '兜底回答', finishReason: 'stop' }
+    ]);
+    const orch = new Orchestrator({
+      router: makeRouter(provider, { agent: { maxSteps: 2 } }),
+      safety: new SafetyGate(),
+      registry
+    });
+    await orch.handleUserMessage('ses-fallback', '查两轮新闻', () => {});
+
+    assert.strictEqual(calls.web.length, 2, '两轮工具都应执行');
+    const fallbackReq = provider.requests[2];
+    assert.ok(fallbackReq, '应触发兜底请求');
+    const digestMsg = fallbackReq.messages.find((m) =>
+      String(m.content).includes('已执行的工具与结果')
+    );
+    assert.ok(digestMsg, '兜底请求应携带工具结果摘要');
+    assert.ok(String(digestMsg.content).includes('search.web'), '摘要应含工具名');
+    assert.ok(!String(digestMsg.content).includes('（无）'), '摘要不应为空');
+  });
 });

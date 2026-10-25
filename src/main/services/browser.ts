@@ -5,6 +5,7 @@ import type { BrowserTaskResult, SiteCredential } from '../../shared/types';
 import type { LLMRouter } from '../llm/router';
 import type { LLMChatMessage, LLMContentPart } from '../llm/provider';
 import { getStorage } from './storage';
+import { extractJsonObject } from '../util/jsonExtract';
 
 export interface BrowserAgentService {
   run(instruction: string, onLog: (line: string) => void): Promise<BrowserTaskResult>;
@@ -96,37 +97,7 @@ const AGENT_SYSTEM = `你是 Routine 的浏览器自动化 Agent。你会收到�
 - 优先用 click_text；坐标点击仅用于验证码或 click_text 失败的场景；若页面在两种登录方式间反复跳变，用 fill_credential 的重试机制而不是反复手点`;
 
 function extractDecision(raw: string): AgentDecision | null {
-  const stripped = raw.replace(/```(?:json)?/g, '').trim();
-  const start = stripped.indexOf('{');
-  if (start < 0) return null;
-  let depth = 0;
-  let inString = false;
-  let escaped = false;
-  for (let i = start; i < stripped.length; i++) {
-    const ch = stripped[i];
-    if (escaped) {
-      escaped = false;
-      continue;
-    }
-    if (ch === '\\') {
-      escaped = true;
-      continue;
-    }
-    if (ch === '"') inString = !inString;
-    if (inString) continue;
-    if (ch === '{') depth++;
-    if (ch === '}') {
-      depth--;
-      if (depth === 0) {
-        try {
-          return JSON.parse(stripped.slice(start, i + 1)) as AgentDecision;
-        } catch {
-          return null;
-        }
-      }
-    }
-  }
-  return null;
+  return extractJsonObject<AgentDecision>(raw);
 }
 
 function extractFirstUrl(instruction: string): string | null {

@@ -1,5 +1,6 @@
 import type { LogEntry, TodoRecurrence, TodoRunRecord, TodoTask } from '../../shared/types';
 import { getStorage } from './storage';
+import { notify } from './notifier';
 
 export type ScheduleRunner = (
   task: TodoTask,
@@ -19,7 +20,7 @@ interface QueueItem {
 
 const TICK_MS = 30_000;
 const CATCH_UP_WINDOW_MS = 24 * 3600_000;
-const MAX_CONCURRENT_LIMIT = 8;
+const RETRY_DELAY_MS = 15 * 60_000;
 
 export function todayLocal(ts = Date.now()): string {
   const d = new Date(ts);
@@ -96,6 +97,24 @@ export class Scheduler {
   private readonly queue: QueueItem[] = [];
   private readonly queuedIds = new Set<string>();
   private activeCount = 0;
+  private paused = false;
+  private readonly retriedIds = new Set<string>();
+
+  /** 暂停自动触发（手动 runTaskNow 不受影响） */
+  setPaused(value: boolean): void {
+    this.paused = value;
+  }
+
+  isPaused(): boolean {
+    return this.paused;
+  }
+
+  stop(): void {
+    if (this.timer) {
+      clearInterval(this.timer);
+      this.timer = null;
+    }
+  }
 
   bindRunner(hooks: SchedulerHooks): void {
     this.hooks = hooks;
@@ -108,7 +127,7 @@ export class Scheduler {
   }
 
   async checkNow(): Promise<void> {
-    if (!this.hooks) return;
+    if (!this.hooks || this.paused) return;
 
     const storage = getStorage();
     const now = Date.now();
@@ -157,14 +176,9 @@ export class Scheduler {
     });
   }
 
+  /** M3：编排器单飞（busy 锁），并发固定为 1；maxConcurrent 配置项已废弃 */
   private maxConcurrent(): number {
-    try {
-      const raw = Number(getStorage().loadSettings().scheduler?.maxConcurrent);
-      if (!Number.isFinite(raw)) return 1;
-      return Math.min(MAX_CONCURRENT_LIMIT, Math.max(1, Math.floor(raw)));
-    } catch {
-      return 1;
-    }
+    return 1;
   }
 
   private pump(): void {
@@ -242,6 +256,26 @@ export class Scheduler {
       saved.runs.push(run);
       storage.saveTodos(saved.tasks, saved.runs);
       this.hooks.onRunsChanged();
+      notify(
+        `定时任务${run.ok ? '完成' : '失败'}：${task.title}`,
+        run.summary || (run.ok ? '执行成功' : '执行失败')
+      );
+      // 失败重试语义：首个失败 15 分钟后补跑一次，连续失败不再重试；成功即复位
+      if (run.ok) {
+        this.retriedIds.delete(task.id);
+      } else if (!this.retriedIds.has(task.id)) {
+        this.retriedIds.add(task.id);
+        this.hooks.emitLog({
+          id: crypto.randomUUID(),
+          ts: Date.now(),
+          agent: 'system',
+          level: 'warn',
+          text: `任务失败，${RETRY_DELAY_MS / 60_000} 分钟后自动重试: ${task.title}`
+        });
+        setTimeout(() => {
+          void this.enqueue(task);
+        }, RETRY_DELAY_MS);
+      }
     }
   }
 }

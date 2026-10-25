@@ -4,6 +4,7 @@ import type {
   AgentLoopStrategy,
   LoopObservation
 } from './types';
+import { extractJsonObject } from '../../util/jsonExtract';
 
 interface PlanAction {
   tool: string;
@@ -18,37 +19,7 @@ interface PlanOutput {
 
 /** 从可能夹带代码块标记的文本中提取第一个完整 JSON 对象 */
 export function extractJson(raw: string): PlanOutput | null {
-  const stripped = raw.replace(/```(?:json)?/g, '').trim();
-  const start = stripped.indexOf('{');
-  if (start < 0) return null;
-  let depth = 0;
-  let inString = false;
-  let escaped = false;
-  for (let i = start; i < stripped.length; i++) {
-    const ch = stripped[i];
-    if (escaped) {
-      escaped = false;
-      continue;
-    }
-    if (ch === '\\') {
-      escaped = true;
-      continue;
-    }
-    if (ch === '"') inString = !inString;
-    if (inString) continue;
-    if (ch === '{') depth++;
-    if (ch === '}') {
-      depth--;
-      if (depth === 0) {
-        try {
-          return JSON.parse(stripped.slice(start, i + 1)) as PlanOutput;
-        } catch {
-          return null;
-        }
-      }
-    }
-  }
-  return null;
+  return extractJsonObject<PlanOutput>(raw);
 }
 
 const PARSE_FAILURE_LIMIT = 2;
