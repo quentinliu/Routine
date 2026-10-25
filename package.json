@@ -1,6 +1,6 @@
 {
   "name": "routine",
-  "version": "0.3.4",
+  "version": "0.4.0",
   "description": "Routine - 操作系统级 AI 助手（macOS / Windows）",
   "main": "dist-main/main/index.js",
   "author": "liuxuebai",
@@ -8,6 +8,7 @@
   "publish": null,
   "scripts": {
     "typecheck": "tsc -p tsconfig.json --noEmit",
+    "lint": "eslint src tests",
     "test": "npm run compile:main && node --test tests/*.test.js",
     "compile:main": "tsc -p tsconfig.json",
     "build": "vite build",
@@ -41,7 +42,10 @@
     "@vitejs/plugin-react": "^6.1.0",
     "electron": "44.9.3",
     "electron-builder": "^26.15.3",
+    "eslint": "^10.13.0",
+    "globals": "^17.13.0",
     "typescript": "~5.9.0",
+    "typescript-eslint": "^8.72.0",
     "vite": "^8.2.2"
   }
 }
