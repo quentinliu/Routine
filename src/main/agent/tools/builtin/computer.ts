@@ -31,6 +31,10 @@ export function createComputerTools(computer: ComputerService): ToolDefinition[]
       },
       agent: 'computer',
       risk: (args) => resolveOpRisk(String(args.op ?? '')),
+      // op 枚举作为工具清单的补充行（原提示词即此形态；FC 模式由 schema 承接）
+      promptListExtra: COMPUTER_OPS.map(
+        (o) => `  - ${o.op}: ${o.description}（风险 ${o.risk}）`
+      ).join('\n'),
       describe(args, risk) {
         const op = String(args.op ?? '');
         const opMeta = COMPUTER_OPS.find((o) => o.op === op);

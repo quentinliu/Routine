@@ -1,4 +1,5 @@
 import type { BrowserAgentService } from '../../../services/browser';
+import { SECTION_ORDERS } from '../../prompt/registry';
 import type { ToolDefinition } from '../types';
 
 export function createBrowserTools(browser: BrowserAgentService): ToolDefinition[] {
@@ -16,6 +17,11 @@ export function createBrowserTools(browser: BrowserAgentService): ToolDefinition
       },
       agent: 'browser',
       risk: 'safe',
+      promptSection: {
+        name: 'tool:browser',
+        order: SECTION_ORDERS.TOOL_GUIDES,
+        text: '浏览器任务：把完整自然语言指令传给 browser.run，例如 "打开 github.com 截图并提取正文"；不要用搜索工具或系统操作替代网页交互'
+      },
       async execute(args, ctx) {
         return browser.run(String(args.instruction ?? ''), (line) => ctx.log(line));
       }

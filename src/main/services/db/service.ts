@@ -6,6 +6,7 @@ import type {
   InspectionReport
 } from '../../../shared/types';
 import { getStorage } from '../storage';
+import { redactSecrets } from '../../util/redact';
 import { createAdapter } from './connection';
 import { normalizeVersion, versionGte, type DbAdapter } from './adapter';
 
@@ -35,8 +36,9 @@ export function assertReadOnlySql(sql: string): void {
   }
 }
 
+/** 对外载荷统一脱敏：含密钥字段必须过 redact（CONTRACTS 约定） */
 function maskDatasource(ds: DatasourceConfig): DatasourceConfig {
-  return { ...ds, password: '' };
+  return redactSecrets(ds, ['password']);
 }
 
 interface CachedConn {

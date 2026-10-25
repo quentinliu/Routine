@@ -1,8 +1,10 @@
-import { useEffect, useRef } from 'react';
-import { useAppStore, EMPTY_TRACES } from '../store';
+import { Fragment, useEffect, useRef } from 'react';
+import { useAppStore, EMPTY_TURNS, type TurnTrace } from '../store';
+import { durationText } from '../lib/format';
+import { useNow } from '../lib/useNow';
 import { MessageBubble } from './MessageBubble';
 import { Composer } from './Composer';
-import { TraceTimeline } from './TraceTimeline';
+import { TurnProcess } from './TurnProcess';
 
 const SUGGESTIONS = [
   '查一下我的电脑配置',
@@ -40,6 +42,23 @@ function EmptyState() {
   );
 }
 
+/** 任务已提交、首个步骤尚未到达时的状态行，避免发送后界面毫无动静 */
+function RunningHint({ startedAt }: { startedAt: number | null }) {
+  const now = useNow(true);
+  const elapsed = startedAt ? durationText(now - startedAt) : '';
+  return (
+    <div className="running-hint" role="status">
+      <span className="running-pulse" aria-hidden />
+      <span className="running-label">正在准备…</span>
+      {elapsed && (
+        <span className="running-clock" aria-hidden>
+          {elapsed}
+        </span>
+      )}
+    </div>
+  );
+}
+
 export function ChatView() {
   const messages = useAppStore((s) => s.messages);
   const streamingMsg = useAppStore((s) => s.streamingMsg);
@@ -48,20 +67,37 @@ export function ChatView() {
   const sessions = useAppStore((s) => s.sessions);
   const currentSessionId = useAppStore((s) => s.currentSessionId);
   const runningSessionId = useAppStore((s) => s.runningSessionId);
-  const traces = useAppStore((s) => s.tracesBySession[currentSessionId] ?? EMPTY_TRACES);
+  const runningStartedAt = useAppStore((s) => s.runningStartedAt);
+  const turns = useAppStore((s) => s.turnsBySession[currentSessionId] ?? EMPTY_TURNS);
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const stickBottom = useRef(true);
 
   const current = sessions.find((s) => s.id === currentSessionId);
   const total = messages.length + (streamingMsg ? 1 : 0);
+  const runningHere = runningSessionId !== null && runningSessionId === currentSessionId;
+
+  // 结算后的轮次跟随它所属的回答消息；仍在执行、以及找不到对应回答的轮次落在消息流末尾
+  const settled = new Map<string, TurnTrace>();
+  const orphans: TurnTrace[] = [];
+  let liveTurn: TurnTrace | undefined;
+  for (const turn of turns) {
+    if (turn.endedAt === null) {
+      liveTurn = turn;
+      continue;
+    }
+    settled.set(turn.msgId, turn);
+    if (!messages.some((m) => m.id === turn.msgId)) orphans.push(turn);
+  }
+  const trailing = liveTurn ? [...orphans, liveTurn] : orphans;
+  const hasTrailing = trailing.length > 0;
 
   useEffect(() => {
     const el = scrollRef.current;
     if (el && stickBottom.current) {
       el.scrollTop = el.scrollHeight;
     }
-  }, [total, streamingMsg?.content, traces.length]);
+  }, [total, streamingMsg?.content, turns.length, liveTurn?.traces.length]);
 
   function onScroll() {
     const el = scrollRef.current;
@@ -87,12 +123,20 @@ export function ChatView() {
           <EmptyState />
         ) : (
           <div className="chat-list">
-            {messages.map((m) => (
-              <MessageBubble key={m.id} message={m} />
+            {messages.map((m) => {
+              const turn = m.role === 'assistant' ? settled.get(m.id) : undefined;
+              return (
+                <Fragment key={m.id}>
+                  {turn && <TurnProcess turn={turn} live={false} />}
+                  <MessageBubble message={m} />
+                </Fragment>
+              );
+            })}
+
+            {trailing.map((t) => (
+              <TurnProcess key={t.msgId} turn={t} live={runningHere && t === liveTurn} />
             ))}
-            {traces.length > 0 && (
-              <TraceTimeline traces={traces} live={runningSessionId === currentSessionId} />
-            )}
+
             {streamingMsg && (
               <MessageBubble
                 message={{
@@ -103,6 +147,10 @@ export function ChatView() {
                 }}
                 streaming
               />
+            )}
+
+            {runningHere && !hasTrailing && !streamingMsg && (
+              <RunningHint startedAt={runningStartedAt} />
             )}
           </div>
         )}

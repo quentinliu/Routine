@@ -187,7 +187,7 @@ test('SSH Agent：用户拒绝确认后不执行且流程继续', async () => {
   }
 });
 
-test('规划系统提示词注入当前主机清单', () => {
+test('主机清单不常驻系统提示词，改为运行时上下文快照', () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'routine-ssh-agent-'));
   initStorage(dir);
   initMemory(dir);
@@ -198,8 +198,12 @@ test('规划系统提示词注入当前主机清单', () => {
   });
   const { orch } = makeOrchestrator(svc, new SafetyGate(), []);
   const sys = orch.planningSystem();
-  assert.ok(sys.includes('ssh.exec'));
-  assert.ok(sys.includes('生产服务器'));
-  assert.ok(sys.includes('root@10.1.1.1:22'));
+  assert.ok(sys.includes('ssh.exec'), '工具清单仍应包含 ssh.exec');
+  assert.ok(!sys.includes('生产服务器'), '易变主机清单不应进入系统提示词');
+
+  const snapshot = orch.runtimeSnapshot();
+  assert.ok(snapshot.startsWith('[运行时上下文]'));
+  assert.ok(snapshot.includes('生产服务器'));
+  assert.ok(snapshot.includes('root@10.1.1.1:22'));
   fs.rmSync(dir, { recursive: true, force: true });
 });

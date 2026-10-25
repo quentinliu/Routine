@@ -18,8 +18,58 @@ import { setThemeMode } from './theme';
 
 const now = () => Date.now();
 
-const EMPTY_TRACES: AgentTraceEvent[] = [];
+const EMPTY_TURNS: TurnTrace[] = [];
 const EMPTY_TODOS: TaskTodoItem[] = [];
+
+/** 单轮执行过程：主进程一次任务只生成一个 msgId，思考与工具事件都挂在同一轮下 */
+export interface TurnTrace {
+  msgId: string;
+  startedAt: number;
+  /** null = 仍在执行；done / 失败 / 中止时结算 */
+  endedAt: number | null;
+  traces: AgentTraceEvent[];
+}
+
+/** 每轮事件上限沿用原环形缓冲策略，每会话只保留最近若干轮 */
+const MAX_TRACES = 499;
+const MAX_TURNS = 20;
+
+/** 思考流式增量并入末条事件：每 token 一条会撑爆缓冲、丢早期过程 */
+function appendTrace(traces: AgentTraceEvent[], e: AgentTraceEvent): AgentTraceEvent[] {
+  if (e.phase === 'thought' && traces.length > 0) {
+    const last = traces[traces.length - 1];
+    if (last.phase === 'thought') {
+      const merged = { ...last, thought: (last.thought ?? '') + (e.thought ?? '') };
+      return [...traces.slice(0, -1), merged];
+    }
+  }
+  return [...traces.slice(-(MAX_TRACES - 1)), e];
+}
+
+function settleTurns(turns: TurnTrace[], at: number): TurnTrace[] {
+  if (!turns.some((t) => t.endedAt === null)) return turns;
+  return turns.map((t) => (t.endedAt === null ? { ...t, endedAt: at } : t));
+}
+
+/** 结算某会话仍在执行的轮次（幂等） */
+function settleSession(
+  turnsBySession: Record<string, TurnTrace[]>,
+  sessionId: string
+): Record<string, TurnTrace[]> {
+  const turns = turnsBySession[sessionId];
+  if (!turns) return turnsBySession;
+  return { ...turnsBySession, [sessionId]: settleTurns(turns, now()) };
+}
+
+function dropSessionTurns(
+  turnsBySession: Record<string, TurnTrace[]>,
+  sessionId: string
+): Record<string, TurnTrace[]> {
+  if (!turnsBySession[sessionId]) return turnsBySession;
+  const next = { ...turnsBySession };
+  delete next[sessionId];
+  return next;
+}
 
 /** 应用内确认请求，替代原生 window.confirm（原生对话框在 Windows 上会吞掉后续键盘焦点） */
 export interface ConfirmRequest {
@@ -39,7 +89,7 @@ export interface StreamingMsg {
   content: string;
 }
 
-export { EMPTY_TRACES, EMPTY_TODOS };
+export { EMPTY_TURNS, EMPTY_TODOS };
 
 interface AppState {
   settings: Settings;
@@ -51,7 +101,8 @@ interface AppState {
   streamingMsg: StreamingMsg | null;
   agents: Record<AgentName, AgentStatus>;
   logs: LogEntry[];
-  tracesBySession: Record<string, AgentTraceEvent[]>;
+  /** 按会话的轮次执行过程（内存态，重载会话不恢复） */
+  turnsBySession: Record<string, TurnTrace[]>;
   todosBySession: Record<string, TaskTodoItem[]>;
   pendingSafety: SafetyRequest | null;
   indexProgress: IndexProgress | null;
@@ -65,6 +116,8 @@ interface AppState {
   /** 待写入 Composer 的草稿（工作台「在对话中诊断」预填） */
   composerDraft: string;
   runningSessionId: string | null;
+  /** 当前任务提交时间；用于首个步骤到达前的运行状态行秒表 */
+  runningStartedAt: number | null;
   notice: string | null;
   confirmRequest: ConfirmRequest | null;
 
@@ -107,7 +160,7 @@ export const useAppStore = create<AppState>()((set, get) => ({
   streamingMsg: null,
   agents: idleAgents(),
   logs: [],
-  tracesBySession: {},
+  turnsBySession: {},
   todosBySession: {},
   pendingSafety: null,
   indexProgress: null,
@@ -119,6 +172,7 @@ export const useAppStore = create<AppState>()((set, get) => ({
   dbWorkbenchDatasourceId: null,
   composerDraft: '',
   runningSessionId: null,
+  runningStartedAt: null,
   notice: null,
   confirmRequest: null,
 
@@ -170,6 +224,13 @@ export const useAppStore = create<AppState>()((set, get) => ({
 
   removeSession: async (id) => {
     await api.sessionsDelete(id);
+    // 会话删除后同步丢弃它的过程与进度，避免内存常驻
+    set((s) => {
+      const turnsBySession = dropSessionTurns(s.turnsBySession, id);
+      const todosBySession = { ...s.todosBySession };
+      delete todosBySession[id];
+      return { turnsBySession, todosBySession };
+    });
     const sessions = await api.sessionsList();
     if (sessions.length === 0) {
       await get().createSession();
@@ -199,15 +260,16 @@ export const useAppStore = create<AppState>()((set, get) => ({
     set({
       messages: [...messages, userMsg],
       runningSessionId: currentSessionId,
+      runningStartedAt: now(),
       chatError: null,
       streamingMsg: null,
-      tracesBySession: { ...get().tracesBySession, [currentSessionId]: [] },
+      turnsBySession: { ...get().turnsBySession, [currentSessionId]: [] },
       todosBySession: { ...get().todosBySession, [currentSessionId]: [] }
     });
     try {
       await api.chatSend(currentSessionId, text);
     } catch {
-      set({ runningSessionId: null });
+      set({ runningSessionId: null, runningStartedAt: null });
     }
   },
 
@@ -221,21 +283,17 @@ export const useAppStore = create<AppState>()((set, get) => ({
 
   pushTrace: (e) => {
     set((state) => {
-      const list = state.tracesBySession[e.sessionId] ?? EMPTY_TRACES;
-      // 思考流式增量并入末条事件：每 token 一条会撑爆环形缓冲、丢早期过程
-      if (e.phase === 'thought' && list.length > 0) {
-        const last = list[list.length - 1];
-        if (last.phase === 'thought') {
-          const merged = list.slice(0, -1);
-          merged.push({ ...last, thought: (last.thought ?? '') + (e.thought ?? '') });
-          return {
-            tracesBySession: { ...state.tracesBySession, [e.sessionId]: merged.slice(-499) }
-          };
-        }
-      }
-      return {
-        tracesBySession: { ...state.tracesBySession, [e.sessionId]: [...list.slice(-499), e] }
-      };
+      const turns = state.turnsBySession[e.sessionId] ?? EMPTY_TURNS;
+      const index = turns.findIndex((t) => t.msgId === e.msgId);
+      const next =
+        index === -1
+          ? [...turns, { msgId: e.msgId, startedAt: now(), endedAt: null, traces: [e] }].slice(
+              -MAX_TURNS
+            )
+          : turns.map((t, i) =>
+              i === index ? { ...t, traces: appendTrace(t.traces, e) } : t
+            );
+      return { turnsBySession: { ...state.turnsBySession, [e.sessionId]: next } };
     });
   },
 
@@ -252,7 +310,11 @@ export const useAppStore = create<AppState>()((set, get) => ({
     if (done) {
       const patch: Partial<AppState> = {};
       // 执行态复位只看运行中会话，与用户当前停留在哪个视图无关
-      if (get().runningSessionId === sessionId) patch.runningSessionId = null;
+      if (get().runningSessionId === sessionId) {
+        patch.runningSessionId = null;
+        patch.runningStartedAt = null;
+        patch.turnsBySession = settleSession(get().turnsBySession, sessionId);
+      }
       if (viewing && current && current.id === msgId) {
         const finalMsg: ChatMessage = {
           id: msgId,
@@ -276,7 +338,19 @@ export const useAppStore = create<AppState>()((set, get) => ({
     }
   },
 
-  setChatError: (e) => set({ chatError: e, runningSessionId: null, streamingMsg: null }),
+  setChatError: (e) => {
+    const { runningSessionId, turnsBySession } = get();
+    // 失败路径主进程不会补发 done，这里必须结算轮次，否则轮头永远停在流光态
+    set({
+      chatError: e,
+      runningSessionId: null,
+      runningStartedAt: null,
+      streamingMsg: null,
+      ...(runningSessionId
+        ? { turnsBySession: settleSession(turnsBySession, runningSessionId) }
+        : {})
+    });
+  },
   setPendingSafety: (r) => set({ pendingSafety: r }),
   setIndexProgress: (p) => set({ indexProgress: p }),
   setSettingsOpen: (open) => set({ settingsOpen: open }),

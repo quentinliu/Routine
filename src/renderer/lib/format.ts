@@ -26,6 +26,15 @@ export function dateStr(ts: number): string {
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
 }
 
+/** 执行耗时：<10s 保留一位小数，<60s 取整，更长输出「Xm Ys」 */
+export function durationText(ms: number): string {
+  const seconds = Math.max(0, ms) / 1000;
+  if (seconds < 10) return `${seconds.toFixed(1)}s`;
+  if (seconds < 60) return `${Math.round(seconds)}s`;
+  const minutes = Math.floor(seconds / 60);
+  return `${minutes}m ${Math.round(seconds % 60)}s`;
+}
+
 export function middleTruncate(s: string, max: number): string {
   if (s.length <= max) return s;
   const half = Math.floor(max / 2);

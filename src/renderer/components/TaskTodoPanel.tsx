@@ -1,14 +1,14 @@
 import { useAppStore, EMPTY_TODOS } from '../store';
 
+export function TaskTodoPanel() {
+  const todos = useAppStore((s) => s.todosBySession[s.currentSessionId] ?? EMPTY_TODOS);
+  const done = todos.filter((t) => t.status === 'completed').length;
 const STATUS_MARK: Record<string, string> = {
   completed: '✓',
   in_progress: '▶',
   pending: '○'
 };
 
-export function TaskTodoPanel() {
-  const todos = useAppStore((s) => s.todosBySession[s.currentSessionId] ?? EMPTY_TODOS);
-  const done = todos.filter((t) => t.status === 'completed').length;
 
   return (
     <div className="todo-panel">

@@ -1,20 +1,11 @@
-import { useState } from 'react';
 import { useAppStore } from '../store';
 
 export function Topbar() {
   const providerMode = useAppStore((s) => s.settings.providerMode);
-  const cloudProfiles = useAppStore((s) => s.settings.cloudProfiles);
-  const activeCloudId = useAppStore((s) => s.settings.activeCloudId);
-  const cloudHealth = useAppStore((s) => s.cloudHealth);
-  const refreshCloudHealth = useAppStore((s) => s.refreshCloudHealth);
-  const switchCloud = useAppStore((s) => s.switchCloud);
   const setSettingsOpen = useAppStore((s) => s.setSettingsOpen);
   const setFileDialogOpen = useAppStore((s) => s.setFileDialogOpen);
   const setTodoDialogOpen = useAppStore((s) => s.setTodoDialogOpen);
   const openDbWorkbench = useAppStore((s) => s.openDbWorkbench);
-  const [modelOpen, setModelOpen] = useState(false);
-
-  const activeProfile = cloudProfiles.find((p) => p.id === activeCloudId) ?? cloudProfiles[0];
 
   return (
     <header className="topbar">
@@ -34,64 +25,6 @@ export function Topbar() {
       <span className={`mode-badge ${providerMode === 'cloud' ? 'mode-cloud' : 'mode-local'}`}>
         {providerMode === 'cloud' ? '效率模式' : '隐私模式'}
       </span>
-
-      {providerMode === 'cloud' && (
-        <div className="model-switcher">
-          <button className="model-pill" onClick={() => {
-            setModelOpen((v) => !v);
-            void refreshCloudHealth();
-          }}>
-            <span
-              className={`health-dot ${
-                cloudHealth[activeProfile.id] === undefined
-                  ? 'unknown'
-                  : cloudHealth[activeProfile.id]
-                    ? 'ok'
-                    : 'fail'
-              }`}
-            />
-            {activeProfile.label || activeProfile.model || '选择模型'}
-            <svg viewBox="0 0 24 24" width="10" height="10" aria-hidden>
-              <path d="M6 9l6 6 6-6" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />
-            </svg>
-          </button>
-          {modelOpen && (
-            <>
-              <div className="model-menu-backdrop" onClick={() => setModelOpen(false)} />
-              <div className="model-menu">
-                {cloudProfiles.map((p) => (
-                  <button
-                    key={p.id}
-                    className={`model-menu-item ${p.id === activeCloudId ? 'selected' : ''}`}
-                    onClick={() => {
-                      setModelOpen(false);
-                      if (p.id !== activeCloudId) void switchCloud(p.id);
-                    }}
-                  >
-                    <span
-                      className={`health-dot ${
-                        cloudHealth[p.id] === undefined ? 'unknown' : cloudHealth[p.id] ? 'ok' : 'fail'
-                      }`}
-                    />
-                    <span className="model-menu-label">{p.label || p.model || '未命名模型'}</span>
-                    <span className="model-menu-model">{p.model}</span>
-                    {p.id === activeCloudId && <span className="profile-active">使用中</span>}
-                  </button>
-                ))}
-                <button
-                  className="model-menu-manage"
-                  onClick={() => {
-                    setModelOpen(false);
-                    setSettingsOpen(true);
-                  }}
-                >
-                  管理模型…
-                </button>
-              </div>
-            </>
-          )}
-        </div>
-      )}
 
       <div className="topbar-actions">
         <button className="topbar-btn" onClick={() => setFileDialogOpen(true)}>

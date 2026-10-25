@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
 import { useAppStore } from '../store';
+import { ModelSwitcher } from './ModelSwitcher';
 
 export function Composer() {
   const runningSessionId = useAppStore((s) => s.runningSessionId);
@@ -63,31 +64,34 @@ export function Composer() {
           }}
           onKeyDown={onKeyDown}
         />
-        {runningHere ? (
-          <button className="send-btn stop" title="停止" onClick={stopChat}>
-            <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden>
-              <rect x="7" y="7" width="10" height="10" rx="1.5" fill="currentColor" />
-            </svg>
-          </button>
-        ) : (
-          <button
-            className="send-btn"
-            title="发送"
-            disabled={!text.trim()}
-            onClick={send}
-          >
-            <svg viewBox="0 0 24 24" width="15" height="15" aria-hidden>
-              <path
-                d="M4 12h13M12 5.5 18.5 12 12 18.5"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              />
-            </svg>
-          </button>
-        )}
+        <div className="composer-controls">
+          <ModelSwitcher disabled={runningHere} />
+          {runningHere ? (
+            <button className="send-btn stop" title="停止" onClick={stopChat}>
+              <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden>
+                <rect x="7" y="7" width="10" height="10" rx="1.5" fill="currentColor" />
+              </svg>
+            </button>
+          ) : (
+            <button
+              className="send-btn"
+              title="发送"
+              disabled={!text.trim()}
+              onClick={send}
+            >
+              <svg viewBox="0 0 24 24" width="15" height="15" aria-hidden>
+                <path
+                  d="M4 12h13M12 5.5 18.5 12 12 18.5"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+              </svg>
+            </button>
+          )}
+        </div>
       </div>
       <p className="composer-hint">AI 可能出错，高风险操作前会请求你的确认</p>
     </div>

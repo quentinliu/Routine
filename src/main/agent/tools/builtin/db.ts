@@ -2,20 +2,43 @@ import type { DatasourceConfig } from '../../../../shared/types';
 import type { ToolDefinition } from '../types';
 import { getDbService } from '../../../services/db/service';
 import { runInspection } from '../../../services/inspectionRunner';
+import { omitSecretFields } from '../../../util/redact';
+import { SECTION_ORDERS } from '../../prompt/registry';
 
-function maskList(): Promise<DatasourceConfig[]> {
-  return Promise.resolve(getDbService().list());
+/** 送模型前整键移除凭据字段：返回空串会被模型读成「密码缺失」并误报 */
+function listForModel(): Promise<Array<Partial<DatasourceConfig>>> {
+  return Promise.resolve(
+    getDbService()
+      .list()
+      .map((ds) => omitSecretFields(ds, ['password']))
+  );
 }
 
 export function createDbTools(): ToolDefinition[] {
   return [
     {
       name: 'db.list',
-      description: '列出已配置的数据库数据源（ID、名称、类型、主机，不含密码）。查询或巡检前先用它拿到 datasourceId。',
+      description:
+        '列出已配置的数据库数据源（ID、名称、类型、主机，不含凭据）。查询、写操作或巡检前先用它拿到 datasourceId。',
       inputSchema: { type: 'object', properties: {} },
       agent: 'db',
       risk: 'safe',
-      execute: () => maskList()
+      promptSection: {
+        name: 'tool:db',
+        order: SECTION_ORDERS.TOOL_GUIDES + 20,
+        text: '数据库任务：先用 db.list 拿数据源 ID；只读诊断用 db.query，写操作/管理语句用 db.exec 并说明原因；诊断、巡检、调优类需求优先激活对应技能（skill.run），按手册执行'
+      },
+      render(result) {
+        const rows = Array.isArray(result) ? (result as Array<Partial<DatasourceConfig>>) : [];
+        if (rows.length === 0) return '（尚未配置任何数据库数据源）';
+        return rows
+          .map(
+            (d) =>
+              `- ${String(d.id)} · ${String(d.name)}（${String(d.type)}）${String(d.user)}@${String(d.host)}:${String(d.port)}${d.enabled === false ? '（已禁用）' : ''}`
+          )
+          .join('\n');
+      },
+      execute: () => listForModel()
     },
     {
       name: 'db.query',

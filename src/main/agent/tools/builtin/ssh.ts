@@ -1,12 +1,11 @@
 import type { SshHostConfig } from '../../../../shared/types';
 import type { SshService } from '../../../services/ssh/service';
 import { resolveHostRef, validateSshCommand } from '../../../services/ssh/util';
+import { SECTION_ORDERS } from '../../prompt/registry';
 import type { ToolDefinition } from '../types';
 
 function formatSshHostsBlock(hosts: SshHostConfig[]): string {
-  if (hosts.length === 0) {
-    return 'SSH 主机清单：（尚未配置任何 SSH 主机，ssh.exec 不可用，请引导用户到设置页添加）';
-  }
+  if (hosts.length === 0) return '';
   const lines = hosts
     .map(
       (h) =>
@@ -24,6 +23,16 @@ export function createSshTools(ssh: SshService): ToolDefinition[] {
       inputSchema: { type: 'object', properties: {} },
       agent: 'ssh',
       risk: 'safe',
+      render(result) {
+        const rows = Array.isArray(result) ? (result as Array<Record<string, unknown>>) : [];
+        if (rows.length === 0) return '（尚未配置任何 SSH 主机）';
+        return rows
+          .map(
+            (r) =>
+              `- ${String(r.name)} ${String(r.address)}（${String(r.authType)}）${r.enabled === false ? '（已禁用）' : ''}`
+          )
+          .join('\n');
+      },
       async execute() {
         return ssh.listHosts().map((h) => ({
           id: h.id,
@@ -49,6 +58,11 @@ export function createSshTools(ssh: SshService): ToolDefinition[] {
       },
       agent: 'ssh',
       risk: 'medium',
+      promptSection: {
+        name: 'tool:ssh',
+        order: SECTION_ORDERS.TOOL_GUIDES + 10,
+        text: 'SSH 任务：ssh.exec 的 host 参数填主机名称（主机清单见消息结尾的运行时上下文快照）；远程命令会真实执行且每次都需用户确认，被拒绝时不要原样重试；优先使用非破坏性的查看类命令；快照中没有主机清单说明尚未配置，请引导用户到设置页添加'
+      },
       describe(args) {
         // 校验错误在审批前抛出（与原行为一致：无效主机/命令不触发确认弹窗）
         const host = resolveHostRef(ssh.listHosts(), String(args.host ?? ''));
@@ -87,7 +101,8 @@ export function createSshTools(ssh: SshService): ToolDefinition[] {
         } catch {
           hosts = [];
         }
-        return formatSshHostsBlock(hosts);
+        // 无主机时不产出快照块：编排器据此判断「本任务无运行时上下文」
+        return hosts.length === 0 ? '' : formatSshHostsBlock(hosts);
       }
     }
   ];

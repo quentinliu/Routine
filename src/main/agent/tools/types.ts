@@ -1,5 +1,6 @@
 import type { AgentName, AgentStatus, LogEntry } from '../../../shared/types';
 import type { OrchestratorEvent } from '../orchestrator';
+import type { PromptStrategyId } from '../prompt/registry';
 import type { RiskClass } from '../safety';
 
 /** 工具执行上下文：由编排器按次构建，status/log 已绑定工具所属 Agent */
@@ -45,7 +46,25 @@ export interface ToolDefinition {
   risk: RiskClass | ((args: Record<string, unknown>) => RiskClass);
   /** risk 非 safe 时由 registry 调用，产出审批文案；校验类错误应在此抛出（早于审批） */
   describe?: (args: Record<string, unknown>, risk: RiskClass) => SafetyDescriptor;
-  /** 动态提示词上下文（如 SSH 主机清单），无则不贡献 */
+  /**
+   * 动态提示词上下文（如 SSH 主机清单）：不进 system prompt，
+   * 由编排器拼成消息尾部的「运行时上下文」快照。无内容返回空串。
+   */
   promptContext?(): string;
+  /**
+   * 跨调用行为守则（与工具定义同文件就近维护），装配系统提示词时收集。
+   * 单次调用说明写进 inputSchema 字段描述，不要放这里。
+   */
+  promptSection?: {
+    name: string;
+    order: number;
+    text: string;
+    /** 缺省两种循环策略都注入 */
+    strategies?: readonly PromptStrategyId[];
+  };
+  /** 文本协议工具清单里的补充行（如 computer.exec 的 op 枚举），FC 模式不使用 */
+  promptListExtra?: string;
+  /** 工具结果渲染（缺省 JSON.stringify）；渲染后仍受 maxResultChars 截断 */
+  render?(result: unknown): string;
   execute(args: Record<string, unknown>, ctx: ToolContext): Promise<unknown>;
 }
