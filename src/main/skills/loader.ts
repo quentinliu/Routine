@@ -13,6 +13,8 @@ export interface LoadedSkill {
 interface Frontmatter {
   name?: unknown;
   description?: unknown;
+  /** 部分上游技能包把版本放在顶层（OpenOcta DB Ops Skills），优先取 metadata.version */
+  version?: unknown;
   metadata?: unknown;
 }
 
@@ -64,6 +66,13 @@ function metadataString(fm: Frontmatter, key: string): string {
   return typeof v === 'string' ? v : '';
 }
 
+/** 版本号：metadata.version 优先，回退顶层 version（两种写法在上游技能包里都存在） */
+function versionOf(fm: Frontmatter): string {
+  const meta = metadataString(fm, 'version').trim();
+  if (meta) return meta;
+  return typeof fm.version === 'string' ? fm.version.trim() : '';
+}
+
 /** 递归列出技能目录内相对路径（不含 SKILL.md 自身），symlink 不跟随 */
 function listFiles(dir: string, rel = ''): string[] {
   const out: string[] = [];
@@ -97,7 +106,7 @@ export function loadSkillDir(dir: string, source: 'builtin' | 'user'): LoadedSki
     info: {
       name: String(frontmatter.name),
       description: String(frontmatter.description),
-      version: metadataString(frontmatter, 'version'),
+      version: versionOf(frontmatter),
       source,
       enabled: true,
       partial: fs.existsSync(path.join(dir, 'scripts')),

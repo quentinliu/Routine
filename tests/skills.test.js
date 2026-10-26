@@ -78,6 +78,18 @@ test('loadSkillDir: version/engine/partial/files 解析', () => {
   fs.rmSync(root, { recursive: true, force: true });
 });
 
+test('loadSkillDir: 顶层 version 作为 metadata.version 的回退', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'skills-'));
+  const dir = path.join(root, 'flat-version');
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(
+    path.join(dir, 'SKILL.md'),
+    '---\nname: flat-version\nversion: 2.3.0\ndescription: Flat version skill.\n---\n\n# body'
+  );
+  assert.strictEqual(loadSkillDir(dir, 'builtin').info.version, '2.3.0');
+  fs.rmSync(root, { recursive: true, force: true });
+});
+
 test('scanSkillRoot: 跳过非法目录并上报，合法目录正常收集', () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'skills-'));
   mkSkillDir(root, 'good-skill', {});
@@ -149,16 +161,30 @@ test('assertReadOnlySql: 白名单首词 + 多语句 + 写锁拒绝', () => {
   assert.throws(() => assertReadOnlySql('   '), /不能为空/);
 });
 
-test('内置资源包: resources/skills 下两个技能均通过规范校验', () => {
+test('内置资源包: resources/skills 下技能均通过规范校验', () => {
   const root = path.join(__dirname, '..', 'resources', 'skills');
   const { skills, errors } = scanSkillRoot(root, 'builtin');
   assert.deepStrictEqual(errors, []);
   const names = skills.map((s) => s.info.name).sort();
-  assert.deepStrictEqual(names, ['mysql', 'postgres']);
-  const mysql = skills.find((s) => s.info.name === 'mysql');
-  assert.ok(mysql.files.length >= 15, `mysql references 应不少于 15 个，实际 ${mysql.files.length}`);
-  assert.ok(mysql.body.includes('EXPLAIN'));
+  assert.deepStrictEqual(names, [
+    'mysql-batch-health-check',
+    'mysql-capacity-early-warning',
+    'mysql-deadlock-analyzer',
+    'mysql-replication-lag-resolver',
+    'mysql-schema-linter',
+    'mysql-slow-query-diagnose',
+    'postgres'
+  ]);
+  // PlanetScale 的通用 mysql 手册已移除，避免与 OpenOcta DB Ops 技能包语义重叠
+  assert.ok(!names.includes('mysql'));
+
   const postgres = skills.find((s) => s.info.name === 'postgres');
   assert.strictEqual(postgres.info.version, '1.0.0');
   assert.ok(postgres.files.length >= 20, `postgres references 应不少于 20 个，实际 ${postgres.files.length}`);
+
+  for (const skill of skills.filter((s) => s.info.name.startsWith('mysql-'))) {
+    assert.strictEqual(skill.info.version, '1.0.0', `${skill.info.name} 版本应取自顶层 version`);
+    assert.strictEqual(skill.info.partial, false, `${skill.info.name} 不含 scripts，不应标记部分兼容`);
+    assert.ok(skill.body.includes('##'), `${skill.info.name} 正文应含章节标题`);
+  }
 });
