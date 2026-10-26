@@ -25,6 +25,10 @@ type EmitBridge = (ev: OrchestratorEvent, assistantSink: { text: string }) => vo
  * 统一「对话一轮」用例：会话持久化、标题、事件桥接、失败清理。
  * ChatSend 与调度 runner 共用此唯一实现，持久化语义不再分叉：
  * 失败且无输出时落一条失败说明，避免悬空 user 消息（连续 user 历史）与空会话。
+ *
+ * id 契约：落盘的 assistant 消息 id 必须复用流式 msgId（orchestrator 生成、
+ * trace 与 chat-delta 共用）。渲染层靠它把「轮次执行过程」吸附到对应回答上方；
+ * 一旦落盘换新 id，会话重载后过程块将失配沉底（v0.5.0 前的缺陷）。
  */
 export class ChatService {
   constructor(
@@ -76,13 +80,20 @@ export class ChatService {
     storage.saveSession(session);
     this.resetStatuses();
 
-    const sink = { text: '' };
+    // msgId 从事件流捕获：渲染层只能通过 trace / chat-delta 感知 msgId，
+    // 同源捕获保证落盘 id 与渲染层内存 id 永远一致
+    const sink = { text: '', msgId: null as string | null };
+    const bridge = (ev: OrchestratorEvent): void => {
+      if (ev.type === 'chat-delta') sink.msgId = ev.msgId;
+      else if (ev.type === 'trace') sink.msgId = ev.event.msgId;
+      this.emitBridge(ev, sink);
+    };
     let failed: string | null = null;
     try {
       await this.orchestrator.handleUserMessage(
         session.id,
         input.text,
-        (ev) => this.emitBridge(ev, sink),
+        bridge,
         session.messages.slice(0, -1)
       );
     } catch (err) {
@@ -92,7 +103,7 @@ export class ChatService {
     const answer = sink.text.trim();
     if (answer) {
       session.messages.push({
-        id: randomUUID(),
+        id: sink.msgId ?? randomUUID(),
         role: 'assistant',
         content: sink.text,
         createdAt: Date.now()
@@ -100,7 +111,7 @@ export class ChatService {
       session.updatedAt = Date.now();
     } else if (failed) {
       session.messages.push({
-        id: randomUUID(),
+        id: sink.msgId ?? randomUUID(),
         role: 'assistant',
         content: `（执行失败：${failed}）`,
         createdAt: Date.now()

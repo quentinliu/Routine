@@ -135,7 +135,7 @@ interface AppState {
   pushTrace(e: AgentTraceEvent): void;
   pushTodoUpdate(e: TodoUpdateEvent): void;
   receiveDelta(sessionId: string, msgId: string, delta: string, done: boolean): void;
-  setChatError(e: string | null): void;
+  setChatError(e: string | null, sessionId?: string): void;
   setPendingSafety(r: SafetyRequest | null): void;
   setIndexProgress(p: IndexProgress): void;
   setSettingsOpen(open: boolean): void;
@@ -263,7 +263,14 @@ export const useAppStore = create<AppState>()((set, get) => ({
       runningStartedAt: now(),
       chatError: null,
       streamingMsg: null,
-      turnsBySession: { ...get().turnsBySession, [currentSessionId]: [] },
+      // 保留历史轮次、只结算残留 live：过程块吸附在各自回答上，不因重发而清空
+      turnsBySession: {
+        ...get().turnsBySession,
+        [currentSessionId]: settleTurns(
+          get().turnsBySession[currentSessionId] ?? EMPTY_TURNS,
+          now()
+        )
+      },
       todosBySession: { ...get().todosBySession, [currentSessionId]: [] }
     });
     try {
@@ -313,8 +320,9 @@ export const useAppStore = create<AppState>()((set, get) => ({
       if (get().runningSessionId === sessionId) {
         patch.runningSessionId = null;
         patch.runningStartedAt = null;
-        patch.turnsBySession = settleSession(get().turnsBySession, sessionId);
       }
+      // 前台与后台/定时任务统一在 done 时结算轮次，否则后台轮次永远停在执行态
+      patch.turnsBySession = settleSession(get().turnsBySession, sessionId);
       if (viewing && current && current.id === msgId) {
         const finalMsg: ChatMessage = {
           id: msgId,
@@ -338,17 +346,23 @@ export const useAppStore = create<AppState>()((set, get) => ({
     }
   },
 
-  setChatError: (e) => {
-    const { runningSessionId, turnsBySession } = get();
-    // 失败路径主进程不会补发 done，这里必须结算轮次，否则轮头永远停在流光态
+  setChatError: (e, sessionId) => {
+    // 仅关闭错误横幅：不动运行态，避免误杀进行中的任务守卫
+    if (e === null) {
+      set({ chatError: null });
+      return;
+    }
+    const { runningSessionId, turnsBySession, currentSessionId } = get();
+    const target = sessionId ?? runningSessionId ?? currentSessionId;
+    // 后台/定时会话的错误不得打断当前正在执行任务的界面状态
+    const foreground =
+      sessionId == null || sessionId === runningSessionId || sessionId === currentSessionId;
     set({
       chatError: e,
-      runningSessionId: null,
-      runningStartedAt: null,
-      streamingMsg: null,
-      ...(runningSessionId
-        ? { turnsBySession: settleSession(turnsBySession, runningSessionId) }
-        : {})
+      ...(foreground
+        ? { runningSessionId: null, runningStartedAt: null, streamingMsg: null }
+        : {}),
+      ...(target ? { turnsBySession: settleSession(turnsBySession, target) } : {})
     });
   },
   setPendingSafety: (r) => set({ pendingSafety: r }),

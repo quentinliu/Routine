@@ -33,7 +33,7 @@ export function App() {
       window.api.onChatDelta((e) =>
         state().receiveDelta(e.sessionId, e.msgId, e.delta, e.done ?? false)
       ),
-      window.api.onChatError((e) => state().setChatError(e.error)),
+      window.api.onChatError((e) => state().setChatError(e.error, e.sessionId)),
       window.api.onAgentStatus((s) => state().setAgentStatus(s)),
       window.api.onAgentTrace((e) => state().pushTrace(e)),
       window.api.onTodoUpdate((e) => state().pushTodoUpdate(e)),
