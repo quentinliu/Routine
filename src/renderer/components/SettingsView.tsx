@@ -652,8 +652,9 @@ export function SettingsView() {
                   <h4>安全与审计</h4>
                   <p className="field-hint">
                     工具风险级覆盖：medium/high 执行前弹确认，safe 自动执行；基线为 high
-                    的工具下调至 safe 时按 medium 生效。审计日志记录于用户数据目录
-                    audit.json（仅 medium/high 操作，环形 500 条）。
+                    的工具下调至 safe 时按 medium 生效。ssh.exec、db.exec 设有不可降级的安全底线
+                    （最低 medium），即使在此处设为 safe 仍会弹确认。审计日志记录于用户数据目录
+                    audit.json（仅 medium/high 操作，含审批内容，环形 500 条）。
                   </p>
                   {Object.entries(form.riskOverrides ?? {}).map(([tool, level]) => (
                     <div key={tool} className="index-row">

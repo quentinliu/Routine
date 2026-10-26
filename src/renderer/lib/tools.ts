@@ -56,10 +56,10 @@ const PRIMARY_KEYS = [
   'url',
   'description',
   'name',
+  'skill',
   'datasourceId',
   'text',
-  'pattern',
-  'skill'
+  'pattern'
 ];
 
 export function summarizeArgs(raw?: string): string {
@@ -75,7 +75,7 @@ export function summarizeArgs(raw?: string): string {
     const first = Object.entries(parsed)[0];
     if (first) return oneLine(`${first[0]}: ${String(first[1])}`);
   } catch {
-    // 摘要在主进程被截断到 200 字符，可能不是合法 JSON
+    // 摘要在主进程被截断（toolDigest 的 TOOL_ARGS_LIMIT），可能不是合法 JSON
   }
   return oneLine(text);
 }

@@ -24,11 +24,24 @@ interface ToolItem {
   running: boolean;
 }
 
-type ProcItem = ThinkItem | ToolItem;
+interface NoticeItem {
+  kind: 'notice';
+  key: string;
+  text: string;
+  error?: boolean;
+}
+
+type ProcItem = ThinkItem | ToolItem | NoticeItem;
 
 function buildItems(traces: AgentTraceEvent[]): ProcItem[] {
   const items: ProcItem[] = [];
   for (const e of traces) {
+    if (e.phase === 'notice') {
+      const text = e.notice ?? '';
+      if (!text) continue;
+      items.push({ kind: 'notice', key: `notice-${items.length}`, text, error: e.error });
+      continue;
+    }
     if (e.phase === 'thought') {
       const text = e.thought ?? '';
       if (!text) continue;
@@ -165,6 +178,8 @@ interface RowProps {
   glyph: ReactNode;
   running?: boolean;
   error?: boolean;
+  /** 告警（非失败）：用 warn 色区分于工具失败 */
+  warn?: boolean;
   label: string;
   summary: string;
   meta?: string;
@@ -177,6 +192,7 @@ function ProcRow({
   glyph,
   running,
   error,
+  warn,
   label,
   summary,
   meta,
@@ -186,7 +202,7 @@ function ProcRow({
 }: RowProps) {
   return (
     <div
-      className={`proc-row${error ? ' is-error' : ''}`}
+      className={`proc-row${error ? ' is-error' : warn ? ' is-notice' : ''}`}
       data-expandable={expandable || undefined}
       role={expandable ? 'button' : undefined}
       tabIndex={expandable ? 0 : undefined}
@@ -283,6 +299,24 @@ function ToolRow({ item }: { item: ToolItem }) {
   );
 }
 
+/** 任务内告警行：与对话日志的 event 行同源，实时呈现，不可展开 */
+function NoticeRow({ item }: { item: NoticeItem }) {
+  return (
+    <ProcRow
+      glyph={
+        <>
+          <path d="M12 4.5 21 20H3z" />
+          <path d="M12 10v4.6M12 17.4h.01" />
+        </>
+      }
+      error={item.error}
+      warn={!item.error}
+      label={item.error ? '失败' : '告警'}
+      summary={item.text}
+    />
+  );
+}
+
 /* ===== 一轮任务的执行过程 ===== */
 
 export function TurnProcess({ turn, live }: { turn: TurnTrace; live: boolean }) {
@@ -303,7 +337,9 @@ export function TurnProcess({ turn, live }: { turn: TurnTrace; live: boolean }) 
   /** 最后一段思考：运行中默认展开并显示为运行态 */
   const lastThink = items.findLast((i) => i.kind === 'think');
   const toolCount = items.filter((i) => i.kind === 'tool').length;
-  const failed = items.some((i) => i.kind === 'tool' && i.error);
+  const failed =
+    items.some((i) => i.kind === 'tool' && i.error) ||
+    items.some((i) => i.kind === 'notice' && i.error);
   const elapsed = Math.max(0, (turn.endedAt ?? now) - turn.startedAt);
   const duration = durationText(elapsed);
 
@@ -361,6 +397,7 @@ export function TurnProcess({ turn, live }: { turn: TurnTrace; live: boolean }) 
                 </div>
               );
             }
+            if (item.kind === 'notice') return <NoticeRow key={item.key} item={item} />;
             return <ToolRow key={item.key} item={item} />;
           })}
         </div>

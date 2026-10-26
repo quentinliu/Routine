@@ -109,6 +109,14 @@ export function ChatView() {
     <main className="chat-view">
       <header className="chat-header">
         <h1>{current?.title || '新会话'}</h1>
+        <button
+          type="button"
+          className="chat-header-log"
+          title="查看 LLM 逐轮完整对话日志"
+          onClick={() => useAppStore.getState().setConvLogOpen(true)}
+        >
+          对话日志
+        </button>
       </header>
 
       {chatError && (

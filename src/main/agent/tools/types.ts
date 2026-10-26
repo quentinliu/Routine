@@ -1,11 +1,24 @@
 import type { AgentName, AgentStatus, LogEntry } from '../../../shared/types';
 import type { OrchestratorEvent } from '../orchestrator';
 import type { PromptStrategyId } from '../prompt/registry';
-import type { RiskClass } from '../safety';
+import type { ApprovalOutcome, RiskClass } from '../safety';
+
+/** 一次审批的结果：由 registry 在等待结束后回调，供编排器落会话日志 */
+export interface ApprovalInfo {
+  tool: string;
+  risk: RiskClass;
+  outcome: ApprovalOutcome;
+  /** 用户决策耗时（ms）：与命令执行耗时分开记录 */
+  waitMs: number;
+  /** 审批时展示的完整内容（命令/SQL 原文） */
+  detail: string;
+}
 
 /** 工具执行上下文：由编排器按次构建，status/log 已绑定工具所属 Agent */
 export interface ToolContext {
   sessionId: string;
+  /** 所属任务 id（写入审计，便于与会话日志关联） */
+  msgId?: string;
   /** 原始事件通道（如推送 safety 确认请求） */
   emit: (e: OrchestratorEvent) => void;
   /** 以本工具所属 Agent 名义推送状态 */
@@ -14,6 +27,8 @@ export interface ToolContext {
   log: (text: string, level?: LogEntry['level']) => void;
   /** 用户中止信号，长耗时工具应响应 */
   signal: AbortSignal;
+  /** 审批结束回调（仅非 safe 工具会触发） */
+  approval?: (info: ApprovalInfo) => void;
 }
 
 /** 非安全级工具在审批前必须给出的确认文案；缺省字段走 registry 通用兜底 */
@@ -28,6 +43,10 @@ export interface SafetyDescriptor {
   rejectStatus?: string;
   /** 拒绝后抛出的错误文案，缺省 `用户拒绝执行该操作: ${name}` */
   rejectError?: string;
+  /** 确认超时后的状态详情，缺省 `确认超时，未执行` */
+  timeoutStatus?: string;
+  /** 确认超时后抛出的错误文案，缺省 `确认超时（无人响应），未执行该操作: ${name}` */
+  timeoutError?: string;
 }
 
 /**
@@ -44,6 +63,11 @@ export interface ToolDefinition {
   /** 工具结果送入模型的字符上限，缺省用编排器默认值（4000） */
   maxResultChars?: number;
   risk: RiskClass | ((args: Record<string, unknown>) => RiskClass);
+  /**
+   * 风险底线：Settings.riskOverrides 不得把该工具降到 floor 以下。
+   * 远程执行/写库类工具（ssh.exec、db.exec）应为 medium——否则一条设置即可静默执行。
+   */
+  riskFloor?: RiskClass;
   /** risk 非 safe 时由 registry 调用，产出审批文案；校验类错误应在此抛出（早于审批） */
   describe?: (args: Record<string, unknown>, risk: RiskClass) => SafetyDescriptor;
   /**

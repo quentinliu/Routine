@@ -106,6 +106,7 @@ interface AppState {
   settingsOpen: boolean;
   fileDialogOpen: boolean;
   todoDialogOpen: boolean;
+  convLogOpen: boolean;
   dbWorkbenchOpen: boolean;
   /** 打开工作台时预设的数据源（缺省取列表首条） */
   dbWorkbenchDatasourceId: string | null;
@@ -136,6 +137,7 @@ interface AppState {
   setSettingsOpen(open: boolean): void;
   setFileDialogOpen(open: boolean): void;
   setTodoDialogOpen(open: boolean): void;
+  setConvLogOpen(open: boolean): void;
   openDbWorkbench(datasourceId?: string): void;
   closeDbWorkbench(): void;
   prefillComposer(text: string): void;
@@ -162,6 +164,7 @@ export const useAppStore = create<AppState>()((set, get) => ({
   settingsOpen: false,
   fileDialogOpen: false,
   todoDialogOpen: false,
+  convLogOpen: false,
   dbWorkbenchOpen: false,
   dbWorkbenchDatasourceId: null,
   composerDraft: '',
@@ -355,6 +358,7 @@ export const useAppStore = create<AppState>()((set, get) => ({
   setSettingsOpen: (open) => set({ settingsOpen: open }),
   setFileDialogOpen: (open) => set({ fileDialogOpen: open }),
   setTodoDialogOpen: (open) => set({ todoDialogOpen: open }),
+  setConvLogOpen: (open) => set({ convLogOpen: open }),
   // 工作台与设置同为弹窗：打开工作台时先收起设置，避免双层遮罩
   openDbWorkbench: (datasourceId) =>
     set({

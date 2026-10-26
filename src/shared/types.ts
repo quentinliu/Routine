@@ -43,6 +43,11 @@ export interface SchedulerConfig {
 export interface AgentConfig {
   /** ReAct 循环最大轮数，范围 [2, 30]（A2 契约批准 2026-10-21） */
   maxSteps: number;
+  /**
+   * 作答阶段单次请求的输出上限（token），范围 [1024, 8192]，缺省 4096。
+   * 命中上限后编排器会自动分段续写，仍被截断时在回答末尾显式标注「未完成」。
+   */
+  answerMaxTokens?: number;
 }
 
 /** 界面主题：system 跟随操作系统（M5 契约批准 2026-10-25） */
@@ -223,6 +228,12 @@ export interface LogEntry {
   agent: AgentName | 'system';
   level: 'info' | 'warn' | 'error';
   text: string;
+  /**
+   * 归属域：`infra` = 基础设施事件（MCP / 浏览器 / 定时调度 / 审批超时与取消），
+   * 只有这类事件进右侧「执行日志」面板；缺省按 `task` 处理（任务内事件只出现在
+   * 「执行过程」与「对话日志」，避免同一事件三处重复）。
+   */
+  scope?: 'task' | 'infra';
 }
 
 export interface ChatDeltaEvent {
@@ -428,7 +439,8 @@ export interface SshExecOptions {
 
 // ===== Agent ReAct 循环（A2 契约批准 2026-10-21，见 CONTRACTS.md 变更记录）=====
 
-export type TracePhase = 'thought' | 'tool-start' | 'tool-end';
+/** `notice` = 任务内告警（协议降级 / 重写 / 中止 / 失败），与思考、工具调用并列展示 */
+export type TracePhase = 'thought' | 'tool-start' | 'tool-end' | 'notice';
 
 export interface AgentTraceEvent {
   sessionId: string;
@@ -441,6 +453,8 @@ export interface AgentTraceEvent {
   resultDigest?: string;
   error?: boolean;
   durationMs?: number;
+  /** phase=notice：任务内告警文案（协议降级 / 重写 / 中止 / 失败），与对话日志中的 event 行同源 */
+  notice?: string;
 }
 
 // ===== MCP 客户端（A3 契约批准 2026-10-21，见 CONTRACTS.md 变更记录）=====
@@ -535,3 +549,40 @@ export interface SkillDetail extends SkillInfo {
   files: string[];
 }
 
+
+// 完整对话日志（U5 契约批准 2026-10-26，见 CONTRACTS.md 变更记录）
+export interface ConversationTaskMeta {
+  /** 任务 msgId，同任务全部轮次共用 */
+  id: string;
+  sessionId: string;
+  /** 用户任务文本（≤200 字符摘要） */
+  task: string;
+  provider: string;
+  ts: number;
+}
+
+/**
+ * JSONL 单行；round/tool/event/final/error 的专有字段见 conversationLog.ts。
+ * tool 行：name / argsDigest / ok / denied / durationMs / resultChars / resultDigest
+ * （参数与结果均已脱敏并按长度截断，用于回答中数值的可追溯性）
+ * round 行：增量落盘，`msgs` 为「以 base 为起点替换尾段」，`systemRef` 表示复用上一轮 system；
+ * read() 负责物化成完整 messages/system，旧格式（全量 `messages`）继续可直接读取。
+ */
+export interface ConversationLogLine {
+  type: 'task' | 'round' | 'tool' | 'safety' | 'event' | 'final' | 'error';
+  at: number;
+  /** final 行：该回答是否经过降级（截断抢救 / 轮次耗尽 / 一致性重写） */
+  degraded?: boolean;
+  /** final 行：回答来源（decision=决策轮 / answer=作答阶段 / digest=兜底摘要） */
+  answeredBy?: 'decision' | 'answer' | 'digest';
+  /** round 行：与上一轮相同的 system 未重复落盘，读取时回填 */
+  systemRef?: boolean;
+  /** round 行：增量消息（base 之前的消息沿用上一轮） */
+  msgs?: { base: number; items: unknown[] };
+  [key: string]: unknown;
+}
+
+export interface ConversationLogView {
+  meta: ConversationTaskMeta;
+  lines: ConversationLogLine[];
+}

@@ -4,7 +4,7 @@ import path from 'node:path';
 const AUDIT_FILE = 'audit.json';
 const MAX_ENTRIES = 500;
 
-export type AuditOutcome = 'pending' | 'approved' | 'denied' | 'timeout';
+export type AuditOutcome = 'pending' | 'approved' | 'denied' | 'timeout' | 'canceled';
 
 export interface AuditEntry {
   id: string;
@@ -15,6 +15,10 @@ export interface AuditEntry {
   risk: string;
   outcome: AuditOutcome;
   resolvedAt?: number;
+  /** 审批时展示的完整内容（远程命令 / 管理 SQL 原文）：事后取证必需，不得只有 summary */
+  detail?: string;
+  /** 触发审批的任务 id，用于关联会话日志 */
+  msgId?: string;
 }
 
 /** 安全门审计日志（M2）：仅记录 medium/high 操作，环形上限 500 条，最新在前 */

@@ -22,6 +22,8 @@ import type {
   McpServerInfo,
   McpServerConfig,
   McpTestResult,
+  ConversationLogView,
+  ConversationTaskMeta,
   SafetyRequest,
   Settings,
   SkillDetail,
@@ -99,6 +101,9 @@ export const IPC = {
   SkillInstall: 'skill:install',
   SkillRemove: 'skill:remove',
   SkillPickDir: 'skill:pick-dir',
+  // invoke (renderer → main) — 完整对话日志（U5 契约批准 2026-10-26，见 CONTRACTS.md 变更记录）
+  ConversationList: 'conversation:list',
+  ConversationGet: 'conversation:get',
   // events (main → renderer)
   ChatDelta: 'chat:delta',
   ChatError: 'chat:error',
@@ -204,6 +209,10 @@ export interface RoutineApi {
   skillPickDir(): Promise<string | null>;
   skillInstall(dir: string): Promise<SkillInfo>;
   skillRemove(name: string): Promise<void>;
+
+  /** 完整对话日志：按开始时间倒序的任务元数据（U5） */
+  conversationList(limit?: number): Promise<ConversationTaskMeta[]>;
+  conversationGet(id: string): Promise<ConversationLogView | null>;
 
   onChatDelta(cb: (e: ChatDeltaEvent) => void): () => void;
   onChatError(cb: (e: ChatErrorEvent) => void): () => void;

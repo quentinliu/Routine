@@ -193,7 +193,8 @@ export class Scheduler {
             ts: Date.now(),
             agent: 'system',
             level: 'error',
-            text: `任务执行异常: ${err instanceof Error ? err.message : String(err)}`
+            text: `任务执行异常: ${err instanceof Error ? err.message : String(err)}`,
+            scope: 'infra'
           });
         })
         .finally(() => {
@@ -223,7 +224,8 @@ export class Scheduler {
         ts: Date.now(),
         agent: 'system',
         level: 'info',
-        text: `定时任务触发: ${task.title}`
+        text: `定时任务触发: ${task.title}`,
+        scope: 'infra'
       });
       const result = await this.hooks.runner(task, (line) =>
         this.hooks?.emitLog({
@@ -231,7 +233,8 @@ export class Scheduler {
           ts: Date.now(),
           agent: 'system',
           level: 'info',
-          text: line
+          text: line,
+          scope: 'infra'
         })
       );
       run.sessionId = result.sessionId;
@@ -270,7 +273,8 @@ export class Scheduler {
           ts: Date.now(),
           agent: 'system',
           level: 'warn',
-          text: `任务失败，${RETRY_DELAY_MS / 60_000} 分钟后自动重试: ${task.title}`
+          text: `任务失败，${RETRY_DELAY_MS / 60_000} 分钟后自动重试: ${task.title}`,
+          scope: 'infra'
         });
         setTimeout(() => {
           void this.enqueue(task);

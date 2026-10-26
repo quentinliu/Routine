@@ -46,10 +46,12 @@ export class FunctionCallingStrategy implements AgentLoopStrategy {
         calls
       };
     }
-    return {
-      type: 'final',
-      text: res.content.trim() || '抱歉，我暂时无法完成这个任务。'
-    };
+    if (res.content.trim()) {
+      return { type: 'final', text: res.content.trim() };
+    }
+    // 空内容不再用「抱歉无法完成」这类兜底话术（会被落盘污染后续任务的 few-shot），
+    // 改为进入作答阶段，由编排器基于工具结果生成回答
+    return { type: 'answer', reason: res.truncated ? 'truncated' : 'done' };
   }
 
   commitStep(

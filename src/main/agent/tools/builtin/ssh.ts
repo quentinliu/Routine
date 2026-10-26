@@ -58,6 +58,8 @@ export function createSshTools(ssh: SshService): ToolDefinition[] {
       },
       agent: 'ssh',
       risk: 'medium',
+      // 安全底线：远程命令不允许被 Settings.riskOverrides 降为 safe（否则一条设置即可静默执行）
+      riskFloor: 'medium',
       promptSection: {
         name: 'tool:ssh',
         order: SECTION_ORDERS.TOOL_GUIDES + 10,

@@ -44,6 +44,7 @@ export class OllamaProvider implements LLMProvider {
 
     let content = '';
     let finishReason = 'stop';
+    let sawDone = false;
     for await (const line of sseLines(res)) {
       try {
         const chunk = JSON.parse(line) as OllamaChatLine;
@@ -54,13 +55,16 @@ export class OllamaProvider implements LLMProvider {
         }
         if (chunk.done) {
           finishReason = chunk.done_reason || 'stop';
+          sawDone = true;
           break;
         }
       } catch {
         // NDJSON 不完整行，跳过
       }
     }
-    return { content, finishReason };
+    // 未收到 done 帧（连接被切断）或命中 num_predict：输出不完整
+    const truncated = !sawDone || finishReason === 'length';
+    return { content, finishReason: sawDone ? finishReason : 'incomplete', truncated };
   }
 
   async listModels(): Promise<string[]> {

@@ -102,13 +102,18 @@ export class OpenAICompatProvider implements LLMProvider {
     }
 
     let content = '';
-    let finishReason = 'stop';
+    let finishReason = '';
+    /** 是否收到明确的收尾信号（finish_reason 或 [DONE]）：缺失说明流被提前关闭 */
+    let sawTerminator = false;
     let usage: LLMResponse['usage'];
     const toolAcc = new Map<number, ToolCallAccumulator>();
     for await (const line of sseLines(res)) {
       if (!line.startsWith('data:')) continue;
       const payload = line.slice(5).trim();
-      if (payload === '[DONE]') break;
+      if (payload === '[DONE]') {
+        sawTerminator = true;
+        break;
+      }
       try {
         const chunk = JSON.parse(payload) as SseChunk;
         const choice = chunk.choices?.[0];
@@ -126,7 +131,10 @@ export class OpenAICompatProvider implements LLMProvider {
           toolAcc.set(idx, acc);
         }
         const fr = choice?.finish_reason;
-        if (fr) finishReason = fr;
+        if (fr) {
+          finishReason = fr;
+          sawTerminator = true;
+        }
         if (chunk.usage) {
           usage = {
             prompt: chunk.usage.prompt_tokens ?? 0,
@@ -139,6 +147,7 @@ export class OpenAICompatProvider implements LLMProvider {
     }
 
     let toolCalls: LLMToolCall[] | undefined;
+    let truncated = false;
     if (toolAcc.size > 0) {
       toolCalls = [...toolAcc.entries()]
         .sort((a, b) => a[0] - b[0])
@@ -148,7 +157,15 @@ export class OpenAICompatProvider implements LLMProvider {
           arguments: acc.arguments || '{}'
         }));
       finishReason = 'tool_calls';
+    } else if (!sawTerminator) {
+      // 上游提前关闭连接：content 可能只是半截，不能让调用方误以为是正常结束
+      truncated = true;
+      finishReason = 'incomplete';
+    } else if (finishReason === 'length') {
+      truncated = true;
+    } else if (!finishReason) {
+      finishReason = 'stop';
     }
-    return { content, finishReason, usage, toolCalls };
+    return { content, finishReason, usage, toolCalls, truncated };
   }
 }

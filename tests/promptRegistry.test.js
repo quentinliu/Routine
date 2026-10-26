@@ -130,6 +130,85 @@ test('双策略装配差异：FC 无 JSON 协议与工具清单', () => {
   assert.ok(textJson.trim().endsWith('回答一律使用中文'), '文本协议以中文收尾（还原原模板顺序）');
 });
 
+test('todo 规则按策略分流：文本协议用 actions 合并，FC 保留并行调用，两版都只增量下发', () => {
+  const registry = createPromptRegistry();
+  const tools = createFileTools({ searchFiles: async () => [], readFile: async () => ({ content: '' }) });
+  const textJson = registry.assemble('text-json', tools, VARS);
+  const fc = registry.assemble('function-calling', tools, VARS);
+
+  assert.ok(textJson.includes('用 actions 带上 patch 只提交变化的项'), '文本协议应指导增量刷新');
+  assert.ok(textJson.includes('不要重发整份清单'), '文本协议不得每轮重发整份清单');
+  assert.ok(!textJson.includes('并行调用 todo.write'), '文本协议不应再要求无法执行的并行调用');
+  assert.ok(fc.includes('并行用 patch 增量提交发生变化的项'), 'FC 保留每轮并行刷新（入参为 patch）');
+  assert.ok(!fc.includes('用 actions 与其它工具'), 'FC 不应出现文本协议的 actions 说法');
+});
+
+test('文本协议解析 actions：一轮多个调用、去重、过滤空项', () => {
+  const { TextJsonStrategy } = require('../dist-main/main/agent/loop/textJson.js');
+  const strategy = new TextJsonStrategy();
+  const step = strategy.parseStep({
+    content: JSON.stringify({
+      thought: '并行查询',
+      actions: [
+        { tool: 'todo.write', args: { todos: [{ content: 'a', status: 'in_progress' }] } },
+        { tool: 'db.query', args: { datasourceId: 'd', sql: 'SELECT 1' } },
+        { tool: 'db.query', args: { datasourceId: 'd', sql: 'SELECT 1' } },
+        { tool: '', args: {} },
+        null
+      ],
+      done: false
+    }),
+    finishReason: 'stop'
+  });
+  assert.strictEqual(step.type, 'calls');
+  assert.deepStrictEqual(
+    step.calls.map((c) => c.name),
+    ['todo.write', 'db.query']
+  );
+  assert.match(step.calls[1].args.sql, /SELECT 1/);
+});
+
+test('文本协议兼容旧格式：单个 action 与 actions 同时出现时合并', () => {
+  const { TextJsonStrategy } = require('../dist-main/main/agent/loop/textJson.js');
+  const strategy = new TextJsonStrategy();
+  const step = strategy.parseStep({
+    content: JSON.stringify({
+      action: { tool: 'db.list', args: {} },
+      actions: [{ tool: 'todo.write', args: { todos: [] } }]
+    }),
+    finishReason: 'stop'
+  });
+  assert.strictEqual(step.type, 'calls');
+  assert.deepStrictEqual(
+    step.calls.map((c) => c.name),
+    ['db.list', 'todo.write']
+  );
+});
+
+test('工具清单递归渲染嵌套参数：todo.write 暴露 index/content/status 与枚举值', () => {
+  const { createTodoTools } = require('../dist-main/main/agent/tools/builtin/todo.js');
+  const text = createPromptRegistry().assemble('text-json', createTodoTools(), VARS);
+  assert.ok(
+    text.includes(
+      '- todo.write {todos?:[{content, status:pending|in_progress|completed}], patch?:[{index, content?, status?:pending|in_progress|completed}]}'
+    ),
+    `todo.write 签名应展开 todos/patch 的嵌套字段，实际：${text.split('\n').find((l) => l.includes('todo.write'))}`
+  );
+});
+
+test('文本协议含 actions 示例，作答规则含阈值/系统库/进度硬约束', () => {
+  const { answerSystemPrompt } = require('../dist-main/main/agent/prompt/sections.js');
+  const textJson = createPromptRegistry().assemble('text-json', [], VARS);
+  assert.ok(textJson.includes('"actions": ['), '输出协议应给出 actions 写法');
+  assert.ok(textJson.includes('action 与 actions 二选一'));
+
+  const answer = answerSystemPrompt();
+  assert.ok(answer.includes('不得用「尚可」'), '阈值判断不得用模糊措辞');
+  assert.ok(answer.includes('系统库（mysql / information_schema'), '清单类结论需说明系统库过滤');
+  assert.ok(answer.includes('不是任务进度'), '工具确认串不得当作任务进度');
+  assert.ok(answer.includes('未获取：缺哪一项 + 原因'));
+});
+
 test('工具清单保留 computer.exec 的 op 枚举补充行', () => {
   const tools = [
     ...createFileTools({ searchFiles: async () => [], readFile: async () => ({ content: '' }) }),

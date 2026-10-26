@@ -18,6 +18,10 @@ const { createBrowserTools } = require('../dist-main/main/agent/tools/builtin/br
 const { createSshTools } = require('../dist-main/main/agent/tools/builtin/ssh.js');
 const { initStorage } = require('../dist-main/main/services/storage.js');
 const { initMemory } = require('../dist-main/main/services/memory.js');
+const {
+  initConversationLog,
+  getConversationLog
+} = require('../dist-main/main/services/conversationLog.js');
 
 const HOST_KEY = utils.generateKeyPairSync('ed25519');
 const PASSWORD = 'pw-agent';
@@ -111,8 +115,10 @@ async function runAgent(svc, gate, script) {
 
 test('SSH Agent 全链路：规划 → 确认 → 远程执行 → 最终回答', async () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'routine-ssh-agent-'));
+  const logDir = fs.mkdtempSync(path.join(os.tmpdir(), 'routine-ssh-log-'));
   initStorage(dir);
   initMemory(dir);
+  initConversationLog(logDir);
   const gate = new SafetyGate();
   const svc = new SshService();
   const { server, executed } = startFakeSshd();
@@ -145,17 +151,42 @@ test('SSH Agent 全链路：规划 → 确认 → 远程执行 → 最终回答'
     assert.ok(sshStatus.some((s) => s.status.state === 'waiting-approval'));
     assert.ok(sshStatus.some((s) => s.status.state === 'acting'));
 
-    assert.ok(events.some((e) => e.type === 'log' && e.entry.text.includes('执行: echo agent-ok')));
+    // 留痕核查：确认决策与命令原文必须能在会话日志里复原
+    const metas = getConversationLog().list();
+    assert.strictEqual(metas.length, 1);
+    const view = getConversationLog().read(metas[0].id);
+    assert.ok(
+      view.lines.some((l) => l.type === 'event' && String(l.text).includes('执行: echo agent-ok')),
+      '工具进度提示应落对话日志，而不是挤进执行日志'
+    );
+    const safetyLine = view.lines.find((l) => l.type === 'safety');
+    assert.ok(safetyLine, '审批结论必须落会话日志（此前完全没有 safety 行）');
+    assert.strictEqual(safetyLine.tool, 'ssh.exec');
+    assert.strictEqual(safetyLine.risk, 'medium');
+    assert.strictEqual(safetyLine.outcome, 'approved');
+    assert.ok(typeof safetyLine.waitMs === 'number', '应记录用户决策耗时');
+    assert.ok(String(safetyLine.detail).includes('echo agent-ok'), '审批详情应含完整命令');
+
+    const toolLine = view.lines.find((l) => l.type === 'tool' && l.name === 'ssh.exec');
+    assert.ok(toolLine, '工具执行行应存在');
+    assert.ok(typeof toolLine.approvalMs === 'number', '工具行应把审批耗时与执行耗时分开');
+    assert.ok(
+      String(toolLine.argsDigest).includes('echo agent-ok'),
+      '参数摘要不得把命令截断掉'
+    );
   } finally {
     server.close();
     fs.rmSync(dir, { recursive: true, force: true });
+    fs.rmSync(logDir, { recursive: true, force: true });
   }
 });
 
 test('SSH Agent：用户拒绝确认后不执行且流程继续', async () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'routine-ssh-agent-'));
+  const logDir = fs.mkdtempSync(path.join(os.tmpdir(), 'routine-ssh-log-'));
   initStorage(dir);
   initMemory(dir);
+  initConversationLog(logDir);
   const gate = new SafetyGate();
   const svc = new SshService();
   const { server, executed } = startFakeSshd();
@@ -179,11 +210,63 @@ test('SSH Agent：用户拒绝确认后不执行且流程继续', async () => {
 
     assert.strictEqual(final, '好的，已取消该操作');
     assert.deepStrictEqual(executed, [], '被拒绝的命令不应到达远程主机');
-    const toolMsg = events.find((e) => e.type === 'log' && e.entry.text.includes('失败'));
-    assert.ok(toolMsg, '应记录工具失败（用户拒绝）');
+    const failEv = events.find(
+      (e) => e.type === 'trace' && e.event.phase === 'tool-end' && e.event.error === true
+    );
+    assert.ok(failEv, '工具失败应由执行过程的 tool-end error 标记（不再另写一条执行日志）');
+
+    const metas = getConversationLog().list();
+    const view = getConversationLog().read(metas[0].id);
+    const safetyLine = view.lines.find((l) => l.type === 'safety');
+    assert.ok(safetyLine, '拒绝也要留痕');
+    assert.strictEqual(safetyLine.outcome, 'denied');
+    const toolLine = view.lines.find((l) => l.type === 'tool' && l.name === 'ssh.exec');
+    assert.strictEqual(toolLine.denied, true);
+    assert.strictEqual(toolLine.ok, false);
   } finally {
     server.close();
     fs.rmSync(dir, { recursive: true, force: true });
+    fs.rmSync(logDir, { recursive: true, force: true });
+  }
+});
+
+test('SSH Agent：确认超时不得伪装成「用户拒绝」', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'routine-ssh-agent-'));
+  const logDir = fs.mkdtempSync(path.join(os.tmpdir(), 'routine-ssh-log-'));
+  initStorage(dir);
+  initMemory(dir);
+  initConversationLog(logDir);
+  const gate = new SafetyGate(30);
+  const svc = new SshService();
+  const { server, executed } = startFakeSshd();
+  await new Promise((r) => server.on('listening', r));
+  const port = server.address().port;
+  svc.saveHost({
+    id: '', name: '测试主机', host: '127.0.0.1', port, user: 'tester',
+    authType: 'password', password: PASSWORD, enabled: true
+  });
+
+  try {
+    const { orch } = makeOrchestrator(svc, gate, [
+      '{"thought":"执行命令","action":{"tool":"ssh.exec","args":{"host":"测试主机","command":"uptime"}},"final":null}',
+      '{"thought":"超时了","action":null,"final":"确认已超时，未执行"}'
+    ]);
+    await orch.handleUserMessage('ses-timeout', '看下负载', () => {});
+
+    assert.deepStrictEqual(executed, [], '超时后不得执行远程命令');
+    const metas = getConversationLog().list();
+    const view = getConversationLog().read(metas[0].id);
+    const safetyLine = view.lines.find((l) => l.type === 'safety');
+    assert.strictEqual(safetyLine.outcome, 'timeout', '无人响应应记为 timeout 而不是 denied');
+    const toolLine = view.lines.find((l) => l.type === 'tool' && l.name === 'ssh.exec');
+    assert.strictEqual(toolLine.timedOut, true);
+    assert.notStrictEqual(toolLine.denied, true, '超时不能被打上 denied 标记');
+    assert.match(String(toolLine.resultDigest), /等待确认超时/, '回灌给模型的应是超时文案');
+    assert.doesNotMatch(String(toolLine.resultDigest), /用户拒绝了该工具调用/);
+  } finally {
+    server.close();
+    fs.rmSync(dir, { recursive: true, force: true });
+    fs.rmSync(logDir, { recursive: true, force: true });
   }
 });
 

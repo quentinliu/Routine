@@ -6,6 +6,7 @@ import {
   nativeTheme,
   shell as electronShell
 } from 'electron';
+import path from 'node:path';
 import { EventPayloadMap, IPC } from '../shared/ipc';
 import {
   AGENT_NAMES,
@@ -32,6 +33,7 @@ import { getInspectionStore } from './services/inspectionStore';
 import { runInspection } from './services/inspectionRunner';
 import { advance, getScheduler } from './services/scheduler';
 import { getStorage, initStorage } from './services/storage';
+import { getConversationLog, initConversationLog } from './services/conversationLog';
 import { initAudit } from './services/audit';
 import { initMemory, getMemoryStore } from './services/memory';
 import { notify } from './services/notifier';
@@ -62,13 +64,16 @@ export function setMainWindow(win: BrowserWindow | null): void {
   }
 }
 
+/** @returns 是否真正送达渲染进程（窗口销毁时返回 false，供审批等关键事件兜底） */
 export function sendToRenderer<C extends keyof EventPayloadMap>(
   channel: C,
   payload: EventPayloadMap[C]
-): void {
-  if (mainWindow && !mainWindow.isDestroyed()) {
+): boolean {
+  if (mainWindow && !mainWindow.isDestroyed() && !mainWindow.webContents.isDestroyed()) {
     mainWindow.webContents.send(channel, payload);
+    return true;
   }
+  return false;
 }
 
 function resetAgentStatuses(): void {
@@ -102,7 +107,11 @@ function orchestratorEmit(ev: OrchestratorEvent, assistantSink: { text: string }
       });
       break;
     case 'safety':
-      sendToRenderer(IPC.SafetyRequest, ev.request);
+      // 窗口不可用时确认请求永远到不了用户：立即终结并记审计，
+      // 不要白等满超时——更不能事后把它讲成「用户拒绝」
+      if (!sendToRenderer(IPC.SafetyRequest, ev.request)) {
+        getSafetyGate().cancelApproval(ev.request.id, '窗口不可用，确认请求无法送达');
+      }
       break;
   }
 }
@@ -120,6 +129,7 @@ export function registerIpc(): void {
   initStorage(app.getPath('userData'));
   initMemory(app.getPath('userData'));
   initAudit(app.getPath('userData'));
+  initConversationLog(path.join(app.getPath('userData'), 'logs', 'conversations'));
   const storage = getStorage();
   const initialSettings = storage.loadSettings();
   // M5：原生控件/对话框跟随设置主题；窗口底色在 index.ts 创建时按此取色
@@ -193,8 +203,12 @@ export function registerIpc(): void {
     getOrchestrator().abort();
   });
 
-  ipcMain.handle(IPC.SafetyRespond, (_e, p: { requestId: string; approved: boolean }) => {
-    getSafetyGate().resolveApproval(p.requestId, p.approved);
+  ipcMain.handle(IPC.SafetyRespond, (e, p: { requestId: string; approved: boolean }) => {
+    // 审批只能由主窗口代签：其它 webContents / 被注入的脚本不能替用户同意
+    if (mainWindow && !mainWindow.isDestroyed() && e.sender !== mainWindow.webContents) {
+      throw new Error('[INVALID] 非法的审批来源');
+    }
+    return getSafetyGate().resolveApproval(p.requestId, p.approved);
   });
 
   ipcMain.handle(IPC.LlmHealth, () => getRouter().checkHealth());
@@ -241,7 +255,8 @@ export function registerIpc(): void {
         ts: Date.now(),
         agent: 'browser',
         level: 'info',
-        text: line
+        text: line,
+        scope: 'infra'
       })
     )
   );
@@ -370,6 +385,11 @@ export function registerIpc(): void {
     skills.remove(p.name);
   });
 
+  ipcMain.handle(IPC.ConversationList, (_e, p: { limit?: number }) =>
+    getConversationLog().list(p?.limit)
+  );
+  ipcMain.handle(IPC.ConversationGet, (_e, p: { id: string }) => getConversationLog().read(p.id));
+
   const mcp = initMcpService(getRegistry());
   mcp.setLogFn((text, level) =>
     sendToRenderer(IPC.LogEntry, {
@@ -377,7 +397,8 @@ export function registerIpc(): void {
       ts: Date.now(),
       agent: 'mcp',
       level: level ?? 'info',
-      text
+      text,
+      scope: 'infra'
     })
   );
   ipcMain.handle(IPC.McpList, () => mcp.list());

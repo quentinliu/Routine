@@ -52,6 +52,11 @@ export interface LLMResponse {
   usage?: LLMUsage;
   /** finish_reason=tool_calls 时为解析后的调用清单 */
   toolCalls?: LLMToolCall[];
+  /**
+   * 输出不完整：流被上游提前关闭（未收到 finish_reason / [DONE]）或命中 max_tokens。
+   * 消费方必须据此区分「模型说完了」与「内容被切断」，不得静默当成正常输出。
+   */
+  truncated?: boolean;
 }
 
 export interface LLMProvider {

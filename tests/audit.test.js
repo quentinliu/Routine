@@ -41,6 +41,29 @@ test('audit：记录、结果回写与幂等终结', () => {
   });
 });
 
+test('audit：审批内容与任务 id 落盘，取消也留痕', () => {
+  withTmp(() => {
+    const log = getAuditLog();
+    log.record({
+      id: 'r-cmd',
+      ts: Date.now(),
+      agent: 'ssh',
+      tool: 'ssh.exec',
+      summary: '在远程主机「192.168.1.2」（root@192.168.1.2）执行命令',
+      risk: 'medium',
+      outcome: 'pending',
+      detail: '在远程主机「192.168.1.2」执行命令\n命令: rm -rf /tmp/demo',
+      msgId: 'msg-1'
+    });
+    const [entry] = log.list();
+    assert.match(entry.detail, /rm -rf \/tmp\/demo/, '审计必须能还原具体命令');
+    assert.strictEqual(entry.msgId, 'msg-1', '审计条目应能关联回会话日志');
+
+    log.resolve('r-cmd', 'canceled');
+    assert.strictEqual(log.list()[0].outcome, 'canceled');
+  });
+});
+
 test('audit：环形上限 500 条且最新在前', () => {
   withTmp(() => {
     const log = getAuditLog();
