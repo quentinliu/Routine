@@ -29,8 +29,6 @@ import { getComputerService, COMPUTER_OPS } from './services/computer';
 import { getDbService } from './services/db/service';
 import { getFileAgentService } from './services/fileAgent';
 import { getFileIndexService } from './services/fileIndexer';
-import { getInspectionStore } from './services/inspectionStore';
-import { runInspection } from './services/inspectionRunner';
 import { advance, getScheduler } from './services/scheduler';
 import { getStorage, initStorage } from './services/storage';
 import { getConversationLog, initConversationLog } from './services/conversationLog';
@@ -334,39 +332,51 @@ export function registerIpc(): void {
   );
   ipcMain.handle(IPC.DbDelete, (_e, p: { id: string }) => {
     getDbService().remove(p.id);
-    getInspectionStore().deleteForDatasource(p.id);
   });
   ipcMain.handle(IPC.DbTest, (_e, p: { id: string }) => getDbService().test(p.id));
-  ipcMain.handle(IPC.InspectionRun, (_e, p: { datasourceId: string }) =>
-    runInspection(p.datasourceId, (line) =>
-      sendToRenderer(IPC.InspectionProgress, {
-        reportId: p.datasourceId,
-        checkId: line,
-        status: 'ok'
-      })
-    )
+  ipcMain.handle(IPC.DbOverview, (_e, p: { id: string }) => getDbService().overview(p.id));
+  ipcMain.handle(IPC.DbQuery, (_e, p: { id: string; sql: string }) =>
+    getDbService().readResult(String(p.id ?? ''), String(p.sql ?? ''))
   );
   ipcMain.handle(
-    IPC.InspectionReports,
-    (_e, p: { datasourceId?: string; limit?: number; before?: number }) => {
-      const limit = Math.min(200, Math.max(1, Math.floor(Number(p.limit) || 50)));
-      const before = Number.isFinite(Number(p.before)) ? Number(p.before) : undefined;
-      return getInspectionStore().listReports(p.datasourceId, limit, before);
-    }
+    IPC.DbObjects,
+    (_e, p: { id: string; database?: string; table?: string }) =>
+      getDbService().objects(
+        String(p.id ?? ''),
+        typeof p.database === 'string' ? p.database : undefined,
+        typeof p.table === 'string' ? p.table : undefined
+      )
   );
-  ipcMain.handle(IPC.InspectionTrends, (_e, p: { datasourceId: string; days: number }) => {
-    const days = Math.min(365, Math.max(7, Math.floor(Number(p.days) || 90)));
-    return getInspectionStore().dailySeries(p.datasourceId, days);
-  });
-  ipcMain.handle(IPC.InspectionCheckTrend, (_e, p: { datasourceId: string; days: number }) => {
-    const days = Math.min(365, Math.max(7, Math.floor(Number(p.days) || 90)));
-    return getInspectionStore().checkTrend(p.datasourceId, days);
-  });
+
+  // 工作台写操作：与 db.exec 工具同一安全底线（基线 medium 不可下调），审批内容含完整 SQL
   ipcMain.handle(
-    IPC.InspectionCheckSeries,
-    (_e, p: { datasourceId: string; checkId: string; days: number }) => {
-      const days = Math.min(365, Math.max(7, Math.floor(Number(p.days) || 90)));
-      return getInspectionStore().checkSeries(p.datasourceId, String(p.checkId ?? ''), days);
+    IPC.DbExec,
+    async (_e, p: { id: string; sql: string; reason?: string }) => {
+      const sql = String(p.sql ?? '').trim();
+      if (!sql) throw new Error('[INVALID] SQL 不能为空');
+      const gate = getSafetyGate();
+      const risk = gate.effectiveRisk('db.exec', 'medium', 'medium');
+      const request = gate.createRequest({
+        agent: 'db',
+        actionSummary: `在数据源上执行管理 SQL：${sql.slice(0, 120)}`,
+        plan: [
+          `目标数据源: ${String(p.id ?? '')}`,
+          `SQL: ${sql.slice(0, 300)}`,
+          `原因: ${p.reason?.trim() || '工作台手动执行'}`
+        ],
+        riskLevel: risk === 'high' ? 'high' : 'medium',
+        tool: 'db.exec',
+        detail: sql
+      });
+      if (!sendToRenderer(IPC.SafetyRequest, request)) {
+        gate.cancelApproval(request.id, '窗口不可达');
+        throw new Error('[E_CANCELED] 安全确认无法送达界面，未执行');
+      }
+      const outcome = await gate.awaitApproval(request);
+      if (outcome === 'denied') throw new Error('[E_DENIED] 已取消执行');
+      if (outcome === 'timeout') throw new Error('[E_TIMEOUT] 确认超时（无人响应），未执行');
+      if (outcome === 'canceled') throw new Error('[E_CANCELED] 已中止，未执行');
+      return getDbService().execResult(String(p.id ?? ''), sql);
     }
   );
 
@@ -416,7 +426,6 @@ export function registerIpc(): void {
     getScheduler().stop();
     void mcp.dispose();
     void getDbService().disposeAll();
-    getInspectionStore().checkpoint();
   });
 
   void mcp.autoConnect();

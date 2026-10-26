@@ -39,13 +39,15 @@
 
 > - 2026-10-26 · U12 契约变更（决策轮输出预算与截断重试，依据 `Untitled-1.ini` 巡检日志复盘）：**根因** FC 决策轮未设 `maxTokens`，落到 `openaiCompat` 缺省 2048；推理模型的思维链与并行 tool_calls 共用该预算，第 3 轮 `completion=2048`、`content` 与 `tool_calls` 双空，任务从「读手册」直接跳到 digest 作答（6 维巡检只落地 3 项）。**预算** 新增 `src/main/agent/loop/limits.ts`（`DECISION_MAX_TOKENS=8192` / `TEXT_JSON_DECISION_MAX_TOKENS=4096`），`FunctionCallingStrategy.buildRequest` 与 `TextJsonStrategy.buildRequest` 显式下发。**截断重试** `AgentLoopStep.retry` 追加可选 `reason?: 'truncated' | 'parse'`；FC 策略空内容/全部调用被丢弃时返回 `retry`（原为 `answer/truncated` 直接降级），`FunctionCallingStrategy.commitStep` 补齐 `retry` 的 assistant + 纠正消息回灌（此前静默丢弃，重试等于原样再撞一次）；编排器 `retry` 分支新增 notice 告警（截断不再静默）。**半截参数** `openaiCompat` 在 `tool_calls` 流命中 `finish_reason=length` 或被提前关闭时标 `truncated`（原先强制改写为 `tool_calls` 且丢掉截断标记，半截 SQL 会被当完整参数执行），FC 策略对 `truncated` 下参数 JSON 不完整的调用一律不执行。**提示词** 双策略 RULES 新增「决策轮只用于调度工具，报告正文留给作答阶段」硬约束。**上下文** `compactContext` 增加两条与总预算无关的压缩：历史轮次的技能手册类结果（`skill.run` 概览 / `skill.read` 章节，按内容形状识别）压到 1200 字符保留头部；完全相同的工具结果（≥400 字符）只留最新一份（作答摘要仍逐条保留，不受影响）。**清单收尾** `TaskTodoStatus` 追加 `'cancelled'`（`todo.ts` 的 `VALID_STATUSES` 与文本协议工具签名同步），新增 `finalizeSessionTodos(sessionId)`：任务结束时把未完成项置 `cancelled`（不谎报 `completed`），编排器据此发 `todo` 快照 + warn（含「无任何成功工具调用落地」判定）。旧 `.jsonl` 日志与既有工具入参兼容
 
+> - 2026-10-26 · U13 契约变更（数据库工作台重设计，巡检体系下线），用户批准：**删除**巡检全链路——`src/main/services/inspectionStore.ts` / `inspectionAlerts.ts` / `inspectionRunner.ts`、`DbService.inspect`、`inspection.run` 工具、`inspection:run` / `inspection:reports` / `inspection:trends` / `inspection:check-trend` / `inspection:check-series` 通道、事件 `inspection:progress` 与 `CheckStatus` / `CheckResult` / `InspectionReport` / `InspectionProgressEvent` / `DailyPoint` / `InspectionTrend` / `CheckTrendRow` / `CheckSeriesPoint` 类型、`DatasourceConfig.thresholds`；历史 `inspections.db` 保留在磁盘但不再读取、不迁移。**根因**：3 个检查项（连通性/连接水位/版本支持）均为静态或瞬时事实，通过率恒 ≈100%，趋势只反映手动点击次数，报告是同一批事实的重复副本。**新增** 通道 `db:overview {id}` → `DbOverview`（打开工作台时一次性实时采样，不落库；各维度独立容错，失败进 `unavailable`，仅版本失败整体报错）、`db:query {id, sql}` → `DbQueryResult`（复用只读守卫与 200 行上限，返回列名、标量二维数组、耗时、截断标记）、`db:exec {id, sql, reason?}`（先经 `getSafetyGate()` 审批，`agent='db'`、`tool='db.exec'`、基线 medium 不可下调，detail 为完整 SQL；拒绝/超时/取消分别抛 `[E_DENIED]` / `[E_TIMEOUT]` / `[E_CANCELED]`）、`db:objects {id, database?, table?}` → 判别式联合（库列表 / 表列表 / 表详情；元数据全部走 information_schema / pg_catalog 参数化查询，不用 `SHOW CREATE TABLE` 拼接标识符）。**状态面板** `DbStatusPanel` 收敛为 `probing` / `down` / `ok` / `disabled` 四态，仅用 `db:test` 探测，删除 `issues` 黄灯与巡检报告依赖。**提示词** `db.list` 守则删除巡检引导，改为「实时指标缺失时用 db.query 自行采样 + skill.run」；作答来源标注改为 `db.query / skill.run / ssh.exec`。渲染层 `DatabaseWorkbench` 重做为「概览 / 查询 / 对象 / 诊断」四标签，`src/renderer/lib/dbWorkbench.ts` 承载格式化、方言转义、技能目录与三类提示词构造
+
 ## 目录所有权
 
 | 代理 | 可写目录/文件 | 职责 |
 |------|--------------|------|
 | A 核心代理 | `src/main/llm/**`, `src/main/agent/**`, `src/main/ipc.ts` | LLM 双模式路由、编排器、安全门、IPC 装配 |
-| B 服务代理 | `src/main/services/**`, `src/main/util/**` | 文件索引/读取、系统控制、联网搜索、浏览器自动化、数据库巡检（MySQL/PostgreSQL，`src/main/services/db/**`） |
-| C 界面代理 | `src/renderer/**`（不含 `global.d.ts`） | 对话界面、Agent 面板、设置页、安全确认弹窗、数据库巡检视图 |
+| B 服务代理 | `src/main/services/**`, `src/main/util/**` | 文件索引/读取、系统控制、联网搜索、浏览器自动化、数据库连接与工作台采集（MySQL/PostgreSQL，`src/main/services/db/**`） |
+| C 界面代理 | `src/renderer/**`（不含 `global.d.ts`） | 对话界面、Agent 面板、设置页、安全确认弹窗、数据库工作台（概览/查询/对象/诊断） |
 
 - `src/shared/types.ts` 与 `src/shared/ipc.ts`：冻结，只读。
 - `src/main/index.ts`：冻结，只读（已定稿）。
@@ -80,10 +82,10 @@ invoke（renderer→main，参数为对象）：
 | `db:save` | `{datasource}` | `DatasourceConfig` |
 | `db:delete` | `{id}` | `void` |
 | `db:test` | `{id}` | `{ok, version, latencyMs}` |
-| `inspection:run` | `{datasourceId}` | `InspectionReport`（进度经 `inspection:progress` 事件；同数据源防重入） |
-| `inspection:reports` | `{datasourceId?, limit?, before?}` | `InspectionReport[]`（倒序分页；limit 缺省 50、钳制 [1,200]） |
-| `inspection:check-trend` | `{datasourceId, days}` | `CheckTrendRow[]`（窗口内按检查项聚合；days 钳制 [7,365]） |
-| `inspection:check-series` | `{datasourceId, checkId, days}` | `CheckSeriesPoint[]`（单检查项逐日序列） |
+| `db:overview` | `{id}` | `DbOverview`（一次性实时采样，不落库） |
+| `db:query` | `{id, sql}` | `DbQueryResult`（只读守卫 + 200 行上限） |
+| `db:exec` | `{id, sql, reason?}` | `DbQueryResult`（安全门确认后执行） |
+| `db:objects` | `{id, database?, table?}` | `DbObjectsResult`（库列表 / 表列表 / 表详情） |
 | `ssh:list` | `{}` | `SshHostConfig[]` |
 | `ssh:save` | `{host}` | `SshHostConfig`（校验 + upsert） |
 | `ssh:delete` | `{id}` | `void` |
@@ -100,7 +102,6 @@ invoke（renderer→main，参数为对象）：
 | `safety:request` | `SafetyRequest` |
 | `log:entry` | `LogEntry` |
 | `index:progress` | `IndexProgress` |
-| `inspection:progress` | `{reportId, checkId, status}` |
 
 ## 编排器协议（A 代理实现）
 
@@ -129,7 +130,7 @@ invoke（renderer→main，参数为对象）：
 - 主进程为 CJS（tsc 编译），只能 require 兼容包；渲染层由 vite 打包，可用 ESM
 - 无原生模块依赖；存储 = userData 目录下 JSON 文件
 - 文件索引默认目录：`~/Desktop`, `~/Documents`, `~/Downloads`；`~` 展开用 `expandHome()`（util/paths.ts）
-- 数据库巡检（P1 批准）：依赖 `mysql2`、`pg`（纯 JS，无原生模块，CJS 兼容）；数据源存 `datasources.json`、巡检报告存 `inspections.json`（每数据源上限 200 条）；巡检为只读诊断（safe 级，不经安全门）；检查项接口与巡检清单见规划文档 §5
+- 数据库（P1 批准；U13 重设计）：依赖 `mysql2`、`pg`（纯 JS，无原生模块，CJS 兼容）；数据源存 `datasources.json`；工作台概览为一次性实时采样（不落库、无趋势、无通过率），结构浏览全部参数化查询；工作台写操作经安全门（基线 medium，`riskFloor` 不可下调），历史 `inspections.db` 不再读取
 - SSH 远程主机（P1.5 批准）：依赖 `ssh2`（纯 JS，无原生模块，CJS 兼容）；主机配置存 `ssh-hosts.json`；`ssh:test` 仅握手不执行命令，`ssh:exec` 每次独立建立连接并在结束时关闭（无长连接池）；执行超时钳制 [1s, 300s]（默认 30s），输出上限钳制 [1KB, 10MB]（默认 512KB）；由用户在设置页直接触发（点击即确认），不接入安全门
 - 敏感字段约定（P6 批准）：新增含密钥的配置或工具结果必须过 `src/main/util/redact.ts`——落盘由 storage 加密，对外载荷用 `redactSecrets` 掩码，送模型的结果用 `omitSecretFields` 整键删除（返回空串会让模型误报「凭据缺失」）。`db:list` 维持掩码形状（`password: ''`）；`ssh:list` 因设置页需回填编辑仍返回明文，不得在其它出口复用该返回值
 - 提示词约定（P6 批准）：系统提示词只能经 `PromptRegistry.assemble()` 产出，禁止再拼大字符串或 `.replace()` 占位符；新增工具的行为守则写在该工具的 `promptSection` 里，易变的运行时事实（主机 / 记忆等）走 `promptContext()` → 消息尾部快照

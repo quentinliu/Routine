@@ -12,6 +12,7 @@ Routine 是一个运行在 macOS 与 Windows 上的** AI 助手**桌面应用。
 - **浏览器 Agent**：基于 Playwright 的浏览器自动化，可用自然语言下达指令
 - **SSH Agent**：远程主机管理与命令执行（安全门确认）
 - **数据库 Agent**：MySQL / PostgreSQL 只读诊断与（经确认的）管理操作，主进程强制只读 SQL 守卫
+- **数据库工作台**：实时概览（连接水位 / QPS / 缓冲池命中 / 锁等待 / 复制 / 容量 Top）、只读 SQL 查询台（写操作走安全确认）、库表结构浏览、按场景交给内置技能的 AI 诊断入口；不做历史采样与假趋势
 
 ### 🧩 Skills 技能系统
 - 遵循 **Agent Skills 开放标准**（SKILL.md），技能即数据、可独立于代码升级
@@ -150,7 +151,7 @@ npm test
 
 渲染层与主进程通过类型安全的 IPC 通道通信（定义在 `src/shared/ipc.ts`）：
 
-- **invoke**（渲染层 → 主进程）：`chat:send`、`file:search`、`computer:exec`、`search:web`、`browser:run`、`ssh:exec`、`db:test`（数据源管理）、`mcp:list`（MCP 服务管理）、`skill:list`（技能管理）等
+- **invoke**（渲染层 → 主进程）：`chat:send`、`file:search`、`computer:exec`、`search:web`、`browser:run`、`ssh:exec`、`db:test`（数据源管理）、`db:overview` / `db:query` / `db:exec` / `db:objects`（数据库工作台）、`mcp:list`（MCP 服务管理）、`skill:list`（技能管理）等
 - **事件**（主进程 → 渲染层）：`chat:delta`（流式输出）、`agent:status`（Agent 状态）、`agent:trace`（执行轨迹）、`agent:todo`（任务清单）、`safety:request`（安全确认）、`index:progress`（索引进度）等
 
 ## 📄 License

@@ -5,12 +5,6 @@ export interface DbAdapter {
   destroy(): Promise<void>;
 }
 
-export interface CheckContext {
-  adapter: DbAdapter;
-  thresholds: Record<string, number>;
-  emitProgress: (line: string) => void;
-}
-
 export const DEFAULT_CONNECT_TIMEOUT_MS = 10_000;
 
 export function normalizeVersion(raw: string): number[] {

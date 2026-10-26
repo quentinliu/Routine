@@ -9,15 +9,13 @@ import type {
   ComputerExecResult,
   ComputerOp,
   DatasourceConfig,
+  DbObjectsResult,
+  DbOverview,
+  DbQueryResult,
   DbTestResult,
   FileReadResult,
   FileSearchResult,
   IndexProgress,
-  InspectionProgressEvent,
-  InspectionReport,
-  InspectionTrend,
-  CheckSeriesPoint,
-  CheckTrendRow,
   LogEntry,
   McpServerInfo,
   McpServerConfig,
@@ -62,26 +60,24 @@ export const IPC = {
   LlmHealth: 'llm:health',
   // 云端模型档案逐个可用性检测（M1 契约批准 2026-10-24，见 CONTRACTS.md 变更记录）
   LlmHealthClouds: 'llm:health-clouds',
-  // 长期记忆 / 巡检趋势（M2 契约批准 2026-10-24，见 CONTRACTS.md 变更记录）
+  // 长期记忆（M2 契约批准 2026-10-24，见 CONTRACTS.md 变更记录）
   MemoryGet: 'memory:get',
   MemorySave: 'memory:save',
-  InspectionTrends: 'inspection:trends',
-  // 检查项通过率（M4 契约批准 2026-10-24，见 CONTRACTS.md 变更记录）
-  InspectionCheckTrend: 'inspection:check-trend',
-  InspectionCheckSeries: 'inspection:check-series',
   OpenExternal: 'app:open-external',
   TodoList: 'todo:list',
   TodoSave: 'todo:save',
   TodoDelete: 'todo:delete',
   TodoToggle: 'todo:toggle',
   TodoRun: 'todo:run',
-  // invoke (renderer → main) — 数据库巡检（P1 契约批准）
+  // invoke (renderer → main) — 数据库（P1 契约批准；工作台 2026-10-26 重设计）
   DbList: 'db:list',
   DbSave: 'db:save',
   DbDelete: 'db:delete',
   DbTest: 'db:test',
-  InspectionRun: 'inspection:run',
-  InspectionReports: 'inspection:reports',
+  DbOverview: 'db:overview',
+  DbQuery: 'db:query',
+  DbExec: 'db:exec',
+  DbObjects: 'db:objects',
   // invoke (renderer → main) — SSH 远程主机（P1.5 契约批准）
   SshList: 'ssh:list',
   SshSave: 'ssh:save',
@@ -115,8 +111,7 @@ export const IPC = {
   SafetyRequest: 'safety:request',
   LogEntry: 'log:entry',
   IndexProgress: 'index:progress',
-  TodoRunsChanged: 'todo:runs-changed',
-  InspectionProgress: 'inspection:progress'
+  TodoRunsChanged: 'todo:runs-changed'
 } as const;
 
 export interface LlmHealth {
@@ -135,7 +130,6 @@ export interface EventPayloadMap {
   [IPC.LogEntry]: LogEntry;
   [IPC.IndexProgress]: IndexProgress;
   [IPC.TodoRunsChanged]: undefined;
-  [IPC.InspectionProgress]: InspectionProgressEvent;
 }
 
 /**
@@ -166,14 +160,6 @@ export interface RoutineApi {
   llmHealthClouds(): Promise<Record<string, boolean>>;
   memoryGet(): Promise<string>;
   memorySave(content: string): Promise<void>;
-  inspectionTrends(datasourceId: string, days: number): Promise<InspectionTrend>;
-  inspectionCheckTrend(datasourceId: string, days: number): Promise<CheckTrendRow[]>;
-  /** 单检查项逐日序列（工作台行下钻） */
-  inspectionCheckSeries(
-    datasourceId: string,
-    checkId: string,
-    days: number
-  ): Promise<CheckSeriesPoint[]>;
   openExternal(url: string): Promise<void>;
   todoList(): Promise<{ tasks: TodoTask[]; runs: TodoRunRecord[] }>;
   todoSave(task: TodoTask): Promise<TodoTask>;
@@ -184,13 +170,14 @@ export interface RoutineApi {
   dbSave(datasource: DatasourceConfig): Promise<DatasourceConfig>;
   dbDelete(id: string): Promise<void>;
   dbTest(id: string): Promise<DbTestResult>;
-  inspectionRun(datasourceId: string): Promise<InspectionReport>;
-  /** 按时间倒序分页；limit 缺省 50（钳制 [1,200]），before 为上一页最旧的 startedAt */
-  inspectionReports(
-    datasourceId?: string,
-    limit?: number,
-    before?: number
-  ): Promise<InspectionReport[]>;
+  /** 实时实例概览：打开工作台时采样一次，不落库 */
+  dbOverview(id: string): Promise<DbOverview>;
+  /** 只读查询（SELECT/SHOW/EXPLAIN/DESC，单语句，最多 200 行） */
+  dbQuery(id: string, sql: string): Promise<DbQueryResult>;
+  /** 写/管理语句：先经安全门确认，拒绝、超时、取消均不执行 */
+  dbExec(id: string, sql: string, reason?: string): Promise<DbQueryResult>;
+  /** 三层对象浏览：无 database=库列表；有 database 无 table=表列表；两者都有=表详情 */
+  dbObjects(id: string, database?: string, table?: string): Promise<DbObjectsResult>;
 
   sshList(): Promise<SshHostConfig[]>;
   sshSave(host: SshHostConfig): Promise<SshHostConfig>;
@@ -229,5 +216,4 @@ export interface RoutineApi {
   onLogEntry(cb: (l: LogEntry) => void): () => void;
   onIndexProgress(cb: (p: IndexProgress) => void): () => void;
   onTodoRunsChanged(cb: () => void): () => void;
-  onInspectionProgress(cb: (e: InspectionProgressEvent) => void): () => void;
 }

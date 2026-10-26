@@ -25,9 +25,6 @@ const CH = {
   LlmHealthClouds: 'llm:health-clouds',
   MemoryGet: 'memory:get',
   MemorySave: 'memory:save',
-  InspectionTrends: 'inspection:trends',
-  InspectionCheckTrend: 'inspection:check-trend',
-  InspectionCheckSeries: 'inspection:check-series',
   OpenExternal: 'app:open-external',
   TodoList: 'todo:list',
   TodoSave: 'todo:save',
@@ -38,8 +35,10 @@ const CH = {
   DbSave: 'db:save',
   DbDelete: 'db:delete',
   DbTest: 'db:test',
-  InspectionRun: 'inspection:run',
-  InspectionReports: 'inspection:reports',
+  DbOverview: 'db:overview',
+  DbQuery: 'db:query',
+  DbExec: 'db:exec',
+  DbObjects: 'db:objects',
   SshList: 'ssh:list',
   SshSave: 'ssh:save',
   SshDelete: 'ssh:delete',
@@ -68,8 +67,7 @@ const CH = {
   SafetyRequest: 'safety:request',
   LogEntry: 'log:entry',
   IndexProgress: 'index:progress',
-  TodoRunsChanged: 'todo:runs-changed',
-  InspectionProgress: 'inspection:progress'
+  TodoRunsChanged: 'todo:runs-changed'
 } as const;
 
 function subscribe<T>(channel: string, cb: (payload: T) => void): () => void {
@@ -104,12 +102,6 @@ const api: RoutineApi = {
   llmHealthClouds: () => ipcRenderer.invoke(CH.LlmHealthClouds),
   memoryGet: () => ipcRenderer.invoke(CH.MemoryGet),
   memorySave: (content) => ipcRenderer.invoke(CH.MemorySave, { content }),
-  inspectionTrends: (datasourceId, days) =>
-    ipcRenderer.invoke(CH.InspectionTrends, { datasourceId, days }),
-  inspectionCheckTrend: (datasourceId, days) =>
-    ipcRenderer.invoke(CH.InspectionCheckTrend, { datasourceId, days }),
-  inspectionCheckSeries: (datasourceId, checkId, days) =>
-    ipcRenderer.invoke(CH.InspectionCheckSeries, { datasourceId, checkId, days }),
   openExternal: (url) => ipcRenderer.invoke(CH.OpenExternal, { url }),
   todoList: () => ipcRenderer.invoke(CH.TodoList),
   todoSave: (task) => ipcRenderer.invoke(CH.TodoSave, { task }),
@@ -120,9 +112,11 @@ const api: RoutineApi = {
   dbSave: (datasource) => ipcRenderer.invoke(CH.DbSave, { datasource }),
   dbDelete: (id) => ipcRenderer.invoke(CH.DbDelete, { id }),
   dbTest: (id) => ipcRenderer.invoke(CH.DbTest, { id }),
-  inspectionRun: (datasourceId) => ipcRenderer.invoke(CH.InspectionRun, { datasourceId }),
-  inspectionReports: (datasourceId, limit, before) =>
-    ipcRenderer.invoke(CH.InspectionReports, { datasourceId, limit, before }),
+  dbOverview: (id) => ipcRenderer.invoke(CH.DbOverview, { id }),
+  dbQuery: (id, sql) => ipcRenderer.invoke(CH.DbQuery, { id, sql }),
+  dbExec: (id, sql, reason) => ipcRenderer.invoke(CH.DbExec, { id, sql, reason }),
+  dbObjects: (id, database, table) =>
+    ipcRenderer.invoke(CH.DbObjects, { id, database, table }),
   sshList: () => ipcRenderer.invoke(CH.SshList),
   sshSave: (host) => ipcRenderer.invoke(CH.SshSave, { host }),
   sshDelete: (id) => ipcRenderer.invoke(CH.SshDelete, { id }),
@@ -154,8 +148,7 @@ const api: RoutineApi = {
   onSafetyRequest: (cb) => subscribe(CH.SafetyRequest, cb),
   onLogEntry: (cb) => subscribe(CH.LogEntry, cb),
   onIndexProgress: (cb) => subscribe(CH.IndexProgress, cb),
-  onTodoRunsChanged: (cb) => subscribe(CH.TodoRunsChanged, cb),
-  onInspectionProgress: (cb) => subscribe(CH.InspectionProgress, cb)
+  onTodoRunsChanged: (cb) => subscribe(CH.TodoRunsChanged, cb)
 };
 
 contextBridge.exposeInMainWorld('api', api);

@@ -1,14 +1,17 @@
 import type {
-  CheckResult,
-  CheckStatus,
   DatasourceConfig,
-  DbTestResult,
-  InspectionReport
+  DbObjectsResult,
+  DbOverview,
+  DbQueryResult,
+  DbTestResult
 } from '../../../shared/types';
 import { getStorage } from '../storage';
 import { redactSecrets } from '../../util/redact';
 import { createAdapter } from './connection';
-import { normalizeVersion, versionGte, type DbAdapter } from './adapter';
+import type { DbAdapter } from './adapter';
+import { collectOverview } from './overview';
+import { collectObjects } from './schema';
+import { buildQueryResult, isConnectionError } from './result';
 
 const MAX_QUERY_ROWS = 200;
 
@@ -36,6 +39,14 @@ export function assertReadOnlySql(sql: string): void {
   }
 }
 
+/** 写/管理语句只允许单条：去掉结尾分号后不得再出现分号 */
+function normalizeWriteSql(sql: string): string {
+  const trimmed = sql.trim().replace(/;\s*$/, '');
+  if (!trimmed) throw new Error('SQL 不能为空');
+  if (/;/.test(trimmed)) throw new Error('仅允许单条语句');
+  return trimmed;
+}
+
 /** 对外载荷统一脱敏：含密钥字段必须过 redact（CONTRACTS 约定） */
 function maskDatasource(ds: DatasourceConfig): DatasourceConfig {
   return redactSecrets(ds, ['password']);
@@ -48,8 +59,6 @@ interface CachedConn {
 
 export class DbService {
   private readonly conns = new Map<string, CachedConn>();
-  /** 巡检 in-flight 锁：同一数据源并发巡检会写重复报告（契约要求防重入） */
-  private readonly inspecting = new Set<string>();
 
   list(): DatasourceConfig[] {
     return getStorage().loadDatasources().map(maskDatasource);
@@ -131,119 +140,81 @@ export class DbService {
     }
   }
 
+  /** 连接级失败清缓存（下次请求自动重连）；普通 SQL 错误保留连接 */
+  private async run<T>(
+    id: string,
+    fn: (adapter: DbAdapter, ds: DatasourceConfig) => Promise<T>
+  ): Promise<T> {
+    const { adapter, ds } = await this.getConn(id);
+    try {
+      return await fn(adapter, ds);
+    } catch (err) {
+      if (isConnectionError(err)) await this.dropConn(id);
+      throw err;
+    }
+  }
+
   /** 只读查询：供 Agent 工具与 skill 步骤使用，主进程强制守卫 */
   async query(id: string, sql: string): Promise<Record<string, unknown>[]> {
     assertReadOnlySql(sql);
-    const { adapter } = await this.getConn(id);
-    const rows = await adapter.query<Record<string, unknown>>(sql);
-    return rows.slice(0, MAX_QUERY_ROWS);
+    return this.run(id, async (adapter) => {
+      const rows = await adapter.query<Record<string, unknown>>(sql);
+      return rows.slice(0, MAX_QUERY_ROWS);
+    });
+  }
+
+  /** 查询台：只读 + 结果元信息（列名 / 耗时 / 是否截断） */
+  async readResult(id: string, sql: string): Promise<DbQueryResult> {
+    assertReadOnlySql(sql);
+    return this.run(id, async (adapter) => {
+      const started = Date.now();
+      const rows = await adapter.query<Record<string, unknown>>(sql);
+      return buildQueryResult(sql, rows, Date.now() - started);
+    });
   }
 
   /** 写操作 / 会话管理：medium 风险，调用方必须先过安全门 */
   async exec(id: string, sql: string): Promise<Record<string, unknown>[]> {
-    const trimmed = sql.trim().replace(/;\s*$/, '');
-    if (!trimmed) throw new Error('SQL 不能为空');
-    if (/;/.test(trimmed)) throw new Error('仅允许单条语句');
-    const { adapter } = await this.getConn(id);
-    const rows = await adapter.query<Record<string, unknown>>(trimmed);
-    return rows.slice(0, MAX_QUERY_ROWS);
+    const trimmed = normalizeWriteSql(sql);
+    return this.run(id, async (adapter) => {
+      const rows = await adapter.query<Record<string, unknown>>(trimmed);
+      return rows.slice(0, MAX_QUERY_ROWS);
+    });
+  }
+
+  /** 工作台写操作：与 exec 同一校验，返回结果元信息（调用方已过安全门） */
+  async execResult(id: string, sql: string): Promise<DbQueryResult> {
+    const trimmed = normalizeWriteSql(sql);
+    return this.run(id, async (adapter) => {
+      const started = Date.now();
+      const rows = await adapter.query<Record<string, unknown>>(trimmed);
+      return buildQueryResult(trimmed, rows, Date.now() - started);
+    });
   }
 
   async serverVersion(id: string): Promise<string> {
-    const { adapter } = await this.getConn(id);
-    return adapter.serverVersion();
+    return this.run(id, (adapter) => adapter.serverVersion());
   }
 
-  /** 巡检入口：同数据源 in-flight 锁，重复发起直接拒绝 */
-  async inspect(
-    id: string,
-    emitProgress?: (line: string) => void
-  ): Promise<InspectionReport> {
-    if (this.inspecting.has(id)) {
-      throw new Error('[INVALID] 该数据源正在巡检中，请勿重复发起');
-    }
-    this.inspecting.add(id);
-    try {
-      return await this.inspectUnlocked(id, emitProgress);
-    } finally {
-      this.inspecting.delete(id);
-    }
+  /** 实时实例概览：一次性采样，不落库（工作台打开 / 手动刷新时调用） */
+  async overview(id: string): Promise<DbOverview> {
+    return this.run(id, async (adapter, ds) => {
+      const started = Date.now();
+      // 版本取不到等同不可用：直接抛出，交给 IPC 错误层
+      const version = await adapter.serverVersion();
+      const body = await collectOverview(adapter, ds.type, version);
+      return {
+        ...body,
+        datasourceId: id,
+        collectedAt: started,
+        durationMs: Date.now() - started
+      };
+    });
   }
 
-  /** 基础巡检：版本 + 连接水位。完整运维诊断由 skills 承担，这里只留既有 IPC 契约的最小实现 */
-  private async inspectUnlocked(
-    id: string,
-    emitProgress?: (line: string) => void
-  ): Promise<InspectionReport> {
-    const ds = getStorage().loadDatasources().find((d) => d.id === id);
-    if (!ds) throw new Error(`数据源不存在: ${id}`);
-    const started = Date.now();
-    const results: CheckResult[] = [];
-    const push = (checkId: string, title: string, status: CheckStatus, value?: string) => {
-      results.push({ checkId, title, status, value, detail: [], durationMs: 0 });
-      emitProgress?.(`${title}: ${value ?? status}`);
-    };
-    let version = '';
-    try {
-      const { adapter } = await this.getConn(id);
-      const vStart = Date.now();
-      version = await adapter.serverVersion();
-      const numeric = normalizeVersion(version);
-      push('connectivity', '连通性', 'ok', `版本 ${version}（${Date.now() - vStart}ms）`);
-
-      if (ds.type === 'mysql') {
-        const rows = await adapter.query<Record<string, unknown>>(
-          "SHOW GLOBAL STATUS WHERE Variable_name IN ('Threads_connected')"
-        );
-        const vars = await adapter.query<Record<string, unknown>>(
-          "SHOW GLOBAL VARIABLES WHERE Variable_name IN ('max_connections')"
-        );
-        const connected = Number(rows.find((r) => r.Variable_name === 'Threads_connected')?.Value ?? 0);
-        const max = Number(vars.find((r) => r.Variable_name === 'max_connections')?.Value ?? 0);
-        const ratio = max > 0 ? connected / max : 0;
-        push(
-          'connection-watermark',
-          '连接水位',
-          ratio > 0.85 ? 'warn' : 'ok',
-          `${connected}/${max}（${Math.round(ratio * 100)}%）`
-        );
-      } else {
-        const rows = await adapter.query<Record<string, unknown>>(
-          'SELECT count(*)::int AS n FROM pg_stat_activity'
-        );
-        const vars = await adapter.query<Record<string, unknown>>(
-          "SELECT setting FROM pg_settings WHERE name = 'max_connections'"
-        );
-        const connected = Number(rows[0]?.n ?? 0);
-        const max = Number(vars[0]?.setting ?? 0);
-        const ratio = max > 0 ? connected / max : 0;
-        push(
-          'connection-watermark',
-          '连接水位',
-          ratio > 0.85 ? 'warn' : 'ok',
-          `${connected}/${max}（${Math.round(ratio * 100)}%）`
-        );
-      }
-      if (numeric.length > 0 && versionGte(numeric, [8, 0])) {
-        push('version-support', '版本支持', 'ok', '受支持的现代版本');
-      } else {
-        push('version-support', '版本支持', 'warn', '旧版本，部分诊断视图可能不可用');
-      }
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      push('connectivity', '连通性', 'error', msg);
-    }
-
-    return {
-      id: crypto.randomUUID(),
-      datasourceId: ds.id,
-      datasourceName: ds.name,
-      startedAt: started,
-      finishedAt: Date.now(),
-      ok: results.every((r) => r.status !== 'error'),
-      serverVersion: version,
-      results
-    };
+  /** 三层对象浏览：库列表 / 表列表 / 表详情 */
+  async objects(id: string, database?: string, table?: string): Promise<DbObjectsResult> {
+    return this.run(id, (adapter, ds) => collectObjects(adapter, ds.type, database, table));
   }
 
   async disposeAll(): Promise<void> {

@@ -29,7 +29,6 @@ const TOOL_META: Record<string, ToolMeta> = {
   'db.list': { label: '数据源列表', kind: 'db' },
   'db.query': { label: '数据库查询', kind: 'db' },
   'db.exec': { label: '数据库变更', kind: 'db' },
-  'inspection.run': { label: '数据库巡检', kind: 'db' },
   'skill.run': { label: '执行技能', kind: 'skill' },
   'skill.read': { label: '读取技能文件', kind: 'skill' },
   'todo.write': { label: '更新任务清单', kind: 'todo' }

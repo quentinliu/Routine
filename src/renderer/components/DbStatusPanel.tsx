@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import type { DbTestResult, DatasourceConfig, InspectionReport } from '../../shared/types';
+import type { DatasourceConfig, DbTestResult } from '../../shared/types';
 import { api } from '../ipc';
 import { useAppStore } from '../store';
 import { buildStatusRows, type DbStatusRow } from '../lib/dbStatus';
@@ -23,19 +23,13 @@ export function DbStatusPanel() {
     setProbing(true);
     const list = await api.dbList().catch(() => [] as DatasourceConfig[]);
     const testById = new Map<string, DbTestResult>();
-    const reportById = new Map<string, InspectionReport | undefined>();
     // 先渲染探测态占位，每个结果到达即落位重排
-    setRows(buildStatusRows(list, testById, reportById));
+    setRows(buildStatusRows(list, testById));
     const enabled = list.filter((d) => d.enabled);
     await Promise.all(
       enabled.map(async (ds) => {
-        const [test, reports] = await Promise.all([
-          api.dbTest(ds.id).catch(failedTest),
-          api.inspectionReports(ds.id, 1).catch(() => [])
-        ]);
-        testById.set(ds.id, test);
-        reportById.set(ds.id, reports[0]);
-        setRows(buildStatusRows(list, testById, reportById));
+        testById.set(ds.id, await api.dbTest(ds.id).catch(failedTest));
+        setRows(buildStatusRows(list, testById));
       })
     );
     setProbing(false);
@@ -51,22 +45,20 @@ export function DbStatusPanel() {
         return '检测中…';
       case 'down':
         return row.error ?? '无法访问';
-      case 'issues':
-        return `最近巡检 ${row.issueCount} 项异常`;
       case 'ok':
-        return `${row.latencyMs ?? 0}ms`;
+        return row.version ? `${row.version} · ${row.latencyMs ?? 0}ms` : `${row.latencyMs ?? 0}ms`;
       case 'disabled':
         return '已停用';
     }
   }
 
-  const abnormal = rows.filter((r) => r.health === 'down' || r.health === 'issues').length;
+  const down = rows.filter((r) => r.health === 'down').length;
 
   return (
     <div className="db-status">
       <div className="db-status-head">
         <h3 className="panel-title">
-          {rows.length > 0 ? `数据库状态${abnormal > 0 ? ` · ${abnormal} 异常` : ''}` : '数据库状态'}
+          {rows.length > 0 ? `数据库状态${down > 0 ? ` · ${down} 不可达` : ''}` : '数据库状态'}
         </h3>
         <button
           type="button"

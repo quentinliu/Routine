@@ -55,12 +55,14 @@ test('promptContext 注入数据源清单（含 id 与启用态），且不含�
   assert.ok(!block.includes('password'));
 });
 
-test('db 工具守则：先基础巡检、同轮并行只读查询、排除系统库、0 行先复核', () => {
+test('db 工具守则：先取数据源、同轮并行只读查询、排除系统库、0 行先复核', () => {
   const text = dbListTool().promptSection.text;
-  assert.ok(text.includes('inspection.run'), '应先跑基础巡检再补维度');
+  assert.ok(text.includes('db.list 拿数据源 ID'), '应先取 datasourceId');
   assert.ok(text.includes('actions 并行提交'), '应允许同类只读查询并行');
   assert.ok(text.includes('排除系统库'), '清单/容量查询需排除系统库');
   assert.ok(text.includes('SHOW DATABASES 复核'), '0 行结果需复核');
+  assert.ok(text.includes('skill.run'), '诊断类需求应引导激活技能');
+  assert.ok(!text.includes('inspection.run'), '巡检已下线，不应再出现在守则里');
 });
 
 test('未配置任何数据源时输出明确的空态块（防止模型臆断）', () => {

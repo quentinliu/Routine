@@ -296,7 +296,7 @@ export interface TodoRunRecord {
   summary: string;
 }
 
-// ===== 数据库巡检（P1 契约批准 2026-08-31，见 CONTRACTS.md 变更记录）=====
+// ===== 数据库（P1 契约批准 2026-08-31；2026-10-26 工作台重设计，见 CONTRACTS.md 变更记录）=====
 
 export type DbDialect = 'mysql' | 'postgresql';
 
@@ -312,7 +312,6 @@ export interface DatasourceConfig {
   ssl?: boolean;
   enabled: boolean;
   timeoutMs?: number;
-  thresholds?: Record<string, number>;
 }
 
 export interface DbTestResult {
@@ -322,75 +321,149 @@ export interface DbTestResult {
   error?: string;
 }
 
-export type CheckStatus = 'ok' | 'warn' | 'error' | 'skipped';
+/** 指标语义色：neutral 表示口径无关或未获取 */
+export type DbMetricTone = 'ok' | 'warn' | 'danger' | 'neutral';
 
-export interface CheckResult {
-  checkId: string;
-  title: string;
-  status: CheckStatus;
-  value?: string;
-  metrics?: Record<string, number>;
-  threshold?: string;
-  detail: string[];
-  suggestion?: string;
-  durationMs: number;
+export interface DbOverviewMetric {
+  key: string;
+  label: string;
+  /** 已格式化展示值，如 `12/151（8%）`、`1.2k/s` */
+  display: string;
+  /** 口径说明，如「启动以来平均」 */
+  hint?: string;
+  tone: DbMetricTone;
+  /** 0-100：仅水位类指标提供，用于进度条 */
+  ratio?: number;
 }
 
-export interface InspectionReport {
+export interface DbSessionRow {
   id: string;
+  user: string;
+  host: string;
+  database: string;
+  command: string;
+  state: string;
+  /** 已持续秒数 */
+  timeSec: number;
+  /** SQL 摘要（≤200 字符） */
+  sql: string;
+}
+
+export interface DbSlowQueryRow {
+  /** 归一化摘要（performance_schema DIGEST_TEXT / pg_stat_statements query） */
+  digest: string;
+  calls: number;
+  avgMs: number;
+  totalMs: number;
+}
+
+export interface DbLockInfo {
+  waiting: number;
+  longestWaitSec: number;
+  hint?: string;
+}
+
+export interface DbReplicationInfo {
+  /** none = 未配置复制（不是异常） */
+  role: 'primary' | 'replica' | 'none' | 'unknown';
+  lagSec?: number;
+  ioRunning?: boolean;
+  sqlRunning?: boolean;
+  hint?: string;
+}
+
+export interface DbCapacityRow {
+  database: string;
+  table: string;
+  /** 估算行数（InnoDB TABLE_ROWS / pg reltuples），不是精确 COUNT */
+  rows: number;
+  totalBytes: number;
+}
+
+export interface DbUnavailable {
+  key: string;
+  label: string;
+  reason: string;
+}
+
+/** 打开工作台时一次性实时采样，不落库、不做趋势 */
+export interface DbOverview {
   datasourceId: string;
-  datasourceName: string;
-  startedAt: number;
-  finishedAt: number;
-  ok: boolean;
-  serverVersion: string;
-  results: CheckResult[];
+  collectedAt: number;
+  durationMs: number;
+  version: string;
+  uptimeSec: number;
+  metrics: DbOverviewMetric[];
+  sessions: DbSessionRow[];
+  slowQueries: DbSlowQueryRow[];
+  locks: DbLockInfo;
+  replication: DbReplicationInfo;
+  capacity: DbCapacityRow[];
+  unavailable: DbUnavailable[];
 }
 
-export interface InspectionProgressEvent {
-  reportId: string;
-  checkId: string;
-  status: CheckStatus;
+/** 单元格：主进程统一转成可渲染标量（Date→ISO、Buffer→hex、BigInt/对象→字符串） */
+export type DbCell = string | number | boolean | null;
+
+export interface DbQueryResult {
+  sql: string;
+  columns: string[];
+  rows: DbCell[][];
+  rowCount: number;
+  /** 命中行数上限（200），结果被截断 */
+  truncated: boolean;
+  durationMs: number;
+  notice?: string;
 }
 
-// 巡检趋势（M2 契约批准 2026-10-24，见 CONTRACTS.md 变更记录）
-export interface DailyPoint {
-  /** 'YYYY-MM-DD'（本地时区） */
-  date: string;
-  /** 巡检次数 */
-  count: number;
-  /** 失败次数 */
-  failures: number;
-  avgDurationMs: number;
+export interface DbDatabaseInfo {
+  name: string;
+  tableCount: number;
+  totalBytes: number;
 }
 
-export interface InspectionTrend {
-  datasourceId: string;
-  days: DailyPoint[];
+export interface DbTableInfo {
+  database: string;
+  name: string;
+  engine: string;
+  /** 估算行数 */
+  rows: number;
+  totalBytes: number;
+  comment?: string;
 }
 
-// 检查项通过率行（M4 契约批准 2026-10-24，见 CONTRACTS.md 变更记录）
-export interface CheckTrendRow {
-  checkId: string;
-  title: string;
-  /** 窗口内该检查项出现的报告次数（含 skipped） */
-  total: number;
-  /** 其中 warn/error 次数（skipped 不计入失败） */
-  fails: number;
-  /** 其中因环境不适用被跳过的次数 */
-  skipped: number;
-  /** 近 7 天（固定窗口）该检查项的失败次数，用于「正在恶化」标记 */
-  recentFails7d: number;
-  lastStatus: CheckStatus;
+export interface DbColumnInfo {
+  name: string;
+  type: string;
+  nullable: boolean;
+  defaultValue: string | null;
+  /** PRI / UNI / MUL 等；取不到时为空串 */
+  key: string;
+  extra?: string;
 }
 
-/** 单检查项逐日序列点（M4 契约批准 2026-10-24，见 CONTRACTS.md 变更记录） */
-export interface CheckSeriesPoint {
-  /** 'YYYY-MM-DD'（本地时区） */
-  date: string;
-  total: number;
-  fails: number;
+export interface DbIndexInfo {
+  name: string;
+  unique: boolean;
+  columns: string[];
 }
+
+export interface DbTableDetail {
+  database: string;
+  table: string;
+  engine: string;
+  rows: number;
+  totalBytes: number;
+  comment?: string;
+  columns: DbColumnInfo[];
+  indexes: DbIndexInfo[];
+}
+
+/** 三层对象浏览用判别式联合：无 database=库列表，有 database 无 table=表列表，两者都有=表详情 */
+export type DbObjectsResult =
+  | { level: 'databases'; databases: DbDatabaseInfo[]; truncated: boolean }
+  | { level: 'tables'; database: string; tables: DbTableInfo[]; truncated: boolean }
+  | { level: 'table'; table: DbTableDetail };
 
 // ===== SSH 远程主机（P1.5 契约批准 2026-10-16，见 CONTRACTS.md 变更记录）=====
 

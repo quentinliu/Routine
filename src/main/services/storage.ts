@@ -8,7 +8,6 @@ import {
   type CloudProviderConfig,
   type DatasourceConfig,
   type FileRecord,
-  type InspectionReport,
   type McpServerConfig,
   type SearchProvider,
   type Settings,
@@ -16,7 +15,6 @@ import {
   type TodoRunRecord,
   type TodoTask
 } from '../../shared/types';
-import { initInspectionStore, getInspectionStore } from './inspectionStore';
 import { decryptSecret, encryptSecret } from '../util/cryptoBox';
 
 const SEARCH_PROVIDERS: SearchProvider[] = ['auto', 'bing', 'tavily'];
@@ -234,14 +232,6 @@ export class StorageService {
     );
   }
 
-  loadInspections(): InspectionReport[] {
-    return getInspectionStore().listReports();
-  }
-
-  appendInspectionReport(report: InspectionReport): void {
-    getInspectionStore().appendReport(report);
-  }
-
   loadSshHosts(): SshHostConfig[] {
     const saved = this.readJson<SshHostConfig[]>(SSH_HOSTS_FILE, []);
     return (Array.isArray(saved) ? saved : []).map((h) => ({
@@ -295,7 +285,6 @@ let storage: StorageService | null = null;
 
 export function initStorage(dir: string): StorageService {
   storage = new StorageService(dir);
-  initInspectionStore(dir);
   return storage;
 }
 

@@ -1,7 +1,6 @@
 import type { DatasourceConfig } from '../../../../shared/types';
 import type { ToolDefinition } from '../types';
 import { getDbService } from '../../../services/db/service';
-import { runInspection } from '../../../services/inspectionRunner';
 import { omitSecretFields } from '../../../util/redact';
 import { SECTION_ORDERS } from '../../prompt/registry';
 
@@ -31,7 +30,7 @@ export function createDbTools(): ToolDefinition[] {
     {
       name: 'db.list',
       description:
-        '列出已配置的数据库数据源（ID、名称、类型、主机，不含凭据）。查询、写操作或巡检前先用它拿到 datasourceId。',
+        '列出已配置的数据库数据源（ID、名称、类型、主机，不含凭据）。查询或写操作前先用它拿到 datasourceId。',
       inputSchema: { type: 'object', properties: {} },
       agent: 'db',
       risk: 'safe',
@@ -40,11 +39,11 @@ export function createDbTools(): ToolDefinition[] {
         order: SECTION_ORDERS.TOOL_GUIDES + 20,
         text:
           '数据库任务：先用 db.list 拿数据源 ID；只读诊断用 db.query，写操作/管理语句用 db.exec 并说明原因；' +
-          '巡检先用 inspection.run 拿连通性/连接水位/版本，再按需补维度；' +
+          '实时指标缺失时用 db.query 自行采样（连接数、QPS、命中率、锁等待、复制延迟、容量），只报实际查到的值；' +
           '同类只读查询可在同一轮用 actions 并行提交，不要逐条消耗轮次；' +
           '查询库表清单/容量必须排除系统库（mysql / information_schema / performance_schema / sys），' +
           '0 行结果先用 SHOW DATABASES 复核再下结论；' +
-          '诊断、巡检、调优类需求优先激活对应技能（skill.run），按手册执行'
+          '诊断与调优类需求优先激活对应技能（skill.run），按手册执行'
       },
       render(result) {
         const rows = Array.isArray(result) ? (result as Array<Partial<DatasourceConfig>>) : [];
@@ -70,7 +69,7 @@ export function createDbTools(): ToolDefinition[] {
     {
       name: 'db.query',
       description:
-        '对指定数据源执行只读 SQL（仅 SELECT/SHOW/EXPLAIN/DESC，单语句，主进程强制守卫）。运维诊断、巡检、采样都用它。',
+        '对指定数据源执行只读 SQL（仅 SELECT/SHOW/EXPLAIN/DESC，单语句，主进程强制守卫）。运维诊断与指标采样都用它。',
       inputSchema: {
         type: 'object',
         properties: {
@@ -111,35 +110,6 @@ export function createDbTools(): ToolDefinition[] {
           });
         }
         return JSON.stringify({ sql, rowCount, rows: payload.rows ?? [] });
-      }
-    },
-    {
-      name: 'inspection.run',
-      description:
-        '对指定数据源执行一次基础巡检（连通性 / 连接水位 / 版本支持）。只读、safe；报告会写入数据库工作台并参与趋势与告警统计。',
-      inputSchema: {
-        type: 'object',
-        properties: {
-          datasourceId: { type: 'string', description: 'db.list 返回的数据源 ID' }
-        },
-        required: ['datasourceId']
-      },
-      agent: 'db',
-      maxResultChars: 2000,
-      risk: 'safe',
-      execute: async (args, ctx) => {
-        const datasourceId = String(args.datasourceId ?? '');
-        const report = await runInspection(datasourceId, (line) => ctx.log(line));
-        return {
-          datasource: report.datasourceName,
-          ok: report.ok,
-          serverVersion: report.serverVersion,
-          checks: report.results.map((r) => ({
-            check: r.title,
-            status: r.status,
-            value: r.value
-          }))
-        };
       }
     },
     {
