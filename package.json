@@ -1,6 +1,6 @@
 {
   "name": "routine",
-  "version": "0.5.0",
+  "version": "0.5.1",
   "description": "Routine - 操作系统级 AI 助手（macOS / Windows）",
   "main": "dist-main/main/index.js",
   "author": "liuxuebai",
