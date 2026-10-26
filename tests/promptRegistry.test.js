@@ -190,7 +190,7 @@ test('工具清单递归渲染嵌套参数：todo.write 暴露 index/content/sta
   const text = createPromptRegistry().assemble('text-json', createTodoTools(), VARS);
   assert.ok(
     text.includes(
-      '- todo.write {todos?:[{content, status:pending|in_progress|completed}], patch?:[{index, content?, status?:pending|in_progress|completed}]}'
+      '- todo.write {todos?:[{content, status:pending|in_progress|completed|cancelled}], patch?:[{index, content?, status?:pending|in_progress|completed|cancelled}]}'
     ),
     `todo.write 签名应展开 todos/patch 的嵌套字段，实际：${text.split('\n').find((l) => l.includes('todo.write'))}`
   );

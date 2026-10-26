@@ -25,6 +25,7 @@ import { validateArgs, formatArgIssues } from './loop/validateArgs';
 import { findUnsupportedNumbers } from './loop/grounding';
 import { buildAnswerDigest, describeCallArgs, type AnswerDigestItem } from './loop/answerDigest';
 import { buildArgsDigest, buildResultDigest } from './loop/toolDigest';
+import { finalizeSessionTodos } from './tools/builtin/todo';
 
 export type OrchestratorEvent =
   | { type: 'agent-status'; status: AgentStatus }
@@ -67,6 +68,15 @@ const ANSWER_TRUNCATION_NOTICE =
 const HISTORY_TOOL_RESULT_BUDGET = 16_000;
 /** 归档时保留的原文前缀：足够模型认出「这是哪条查询」，不至于整条丢失 */
 const ARCHIVE_KEEP_CHARS = 240;
+/**
+ * 技能手册类结果在历史轮次里保留的头/尾长度（字符）。
+ * 结构是「环境适配头（头）+ 正文（中）+ 章节清单（尾）」，两头都要留：
+ * 只砍尾巴会把「该用哪一章」的索引砍掉，只砍头会丢掉适配规则。
+ */
+const SKILL_RESULT_HEAD_CHARS = 800;
+const SKILL_RESULT_TAIL_CHARS = 400;
+/** 参与「相同结果去重」的最小长度：短确认串（「已更新 3 项」）重复出现不占多少，不必动 */
+const DUPLICATE_RESULT_MIN_CHARS = 400;
 /** 运行时上下文快照标记：整句作为识别依据，避免误伤用户输入 */
 const SNAPSHOT_MARKER = '[运行时上下文]（本快照取代此前所有运行时上下文）';
 
@@ -167,6 +177,15 @@ function isToolResultMessage(message: LLMChatMessage): boolean {
   if (typeof message.content !== 'string') return false;
   if (message.role === 'tool') return true;
   return message.role === 'user' && message.content.startsWith('工具结果: <tool_result>');
+}
+
+/**
+ * 技能手册类结果（skill.run 概览 / skill.read 章节）：内容大且只在「下一步」有用，
+ * 历史轮次里留着全文等于每轮重复付费。按开头 JSON 形状识别，避免依赖工具名。
+ */
+function isSkillDocResult(text: string): boolean {
+  const body = text.replace(/^工具结果:\s*/, '').replace(/^<tool_result>/, '').trimStart();
+  return body.startsWith('{"skill"') || body.startsWith('{"path":"SKILL');
 }
 
 export class Orchestrator {
@@ -302,7 +321,51 @@ export class Orchestrator {
     if (indexes.length <= 1) return false;
     const lengthOf = (i: number): number => String(messages[i].content).length;
     let total = indexes.reduce((sum, i) => sum + lengthOf(i), 0);
-    if (total <= HISTORY_TOOL_RESULT_BUDGET) return false;
+    const lastIndex = indexes[indexes.length - 1];
+    let changed = false;
+
+    // —— 技能手册类结果：skill.run 的概览每次 2~3k 字符，逐轮重发是 prompt 复利的主因。
+    // 总预算归档（16k）对这种「中等长度单块」不触发，所以这里独立压一次：
+    // 保留头部适配规则 + 尾部章节清单，中段正文让模型按章节 skill.read 重取。
+    const keep = SKILL_RESULT_HEAD_CHARS + SKILL_RESULT_TAIL_CHARS;
+    for (const i of indexes) {
+      if (i === lastIndex) continue;
+      const text = String(messages[i].content);
+      if (text.length <= keep + 400) continue;
+      if (!isSkillDocResult(text)) continue;
+      messages[i] = {
+        ...messages[i],
+        content:
+          `${text.slice(0, SKILL_RESULT_HEAD_CHARS)}\n…（技能手册共 ${text.length} 字符，历史轮次只保留头尾：` +
+          '适配规则见上、章节清单见下；需要正文请用 skill.read 按章节重新取）\n' +
+          `${text.slice(-SKILL_RESULT_TAIL_CHARS)}`
+      };
+      total -= text.length - String(messages[i].content).length;
+      changed = true;
+    }
+
+    // —— 完全相同的工具结果只留最新一份：同一本手册被 read 两次、同一条 SQL 被查两遍
+    // 在历史里各占一份是纯浪费（作答摘要仍逐条保留，不受此影响）。
+    const seen = new Map<string, number>();
+    for (const i of indexes) {
+      const text = String(messages[i].content);
+      if (text.length < DUPLICATE_RESULT_MIN_CHARS) continue;
+      const prev = seen.get(text);
+      if (prev === undefined) {
+        seen.set(text, i);
+        continue;
+      }
+      messages[prev] = {
+        ...messages[prev],
+        content: `（该调用的结果与后续一次调用完全相同，共 ${text.length} 字符，此处省略）`
+      };
+      total -= text.length - String(messages[prev].content).length;
+      // 指针移到最新一份：再来一条相同结果时被省略的是中间那份
+      seen.set(text, i);
+      changed = true;
+    }
+
+    if (total <= HISTORY_TOOL_RESULT_BUDGET) return changed;
 
     const archive = (i: number): void => {
       const text = String(messages[i].content);
@@ -314,7 +377,6 @@ export class Orchestrator {
       messages[i] = { ...messages[i], content: archived };
     };
 
-    const lastIndex = indexes[indexes.length - 1];
     for (const i of indexes) {
       if (total <= HISTORY_TOOL_RESULT_BUDGET) break;
       if (i === lastIndex) continue;
@@ -807,11 +869,14 @@ export class Orchestrator {
         if (step.type === 'retry') {
           strategy.commitStep(messages, step, []);
           parseRetries += 1;
+          const kind = step.reason === 'truncated' ? '决策输出被截断' : '决策输出不可解析';
           if (parseRetries > MAX_PARSE_RETRIES) {
             answerIntent = 'truncated';
-            this.report(emit, sessionId, msgId, '决策输出连续不可解析，改用已收集的工具结果作答', 'warn');
+            this.report(emit, sessionId, msgId, `${kind}且连续纠错无效，改用已收集的工具结果作答`, 'warn');
             break;
           }
+          // 截断属于「预算不够」而非「格式错误」：必须让用户看见，否则又变成静默降级
+          this.report(emit, sessionId, msgId, `${kind}，已要求模型只提交工具调用后重试（第 ${parseRetries} 次）`, 'warn');
           // 纠正轮不消耗工具轮预算：否则最后几轮全被格式纠正吃掉，最终只能走兜底
           round--;
           continue;
@@ -877,6 +942,24 @@ export class Orchestrator {
       if (this.aborted) {
         this.emitAborted(emit, sessionId, msgId);
         return '';
+      }
+
+      // —— 清单收尾：任务结束时不允许有项停在 pending / in_progress。
+      // 只有 todo.write 的确认串算不出进度，所以这里按真实工具调用核一次：
+      // 有项没做完、且整轮没有任何成功的工具调用落地时，必须显式告警，
+      // 避免又出现「清单第 2 项 in_progress，报告却说已完成」的自相矛盾。
+      const finalized = finalizeSessionTodos(sessionId);
+      if (finalized && finalized.open.length > 0) {
+        emit({ type: 'todo', sessionId, todos: finalized.todos });
+        const names = finalized.open.map((t) => `「${t.content}」`).join('');
+        const productiveCalls = taskObservations.filter(
+          (o) => o.tool !== 'todo.write' && !o.failed
+        ).length;
+        const why =
+          productiveCalls > 0
+            ? `任务结束时仍有 ${finalized.open.length} 项子任务未完成：${names}，已置为 cancelled（回答中需如实标注）`
+            : `子任务${names}停在未完成状态，且本次任务没有任何成功的工具调用落地，已置为 cancelled`;
+        this.report(emit, sessionId, msgId, why, 'warn');
       }
 
       const answerItems: AnswerDigestItem[] = taskObservations.map((o, i) => ({

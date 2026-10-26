@@ -509,7 +509,11 @@ export interface McpTestResult {
 // ===== 任务子任务清单（T1 契约批准 2026-10-21，见 CONTRACTS.md 变更记录）=====
 // 命名避开既有定时任务 TodoTask / TodoTaskStatus
 
-export type TaskTodoStatus = 'pending' | 'in_progress' | 'completed';
+/**
+ * cancelled：任务收尾时仍未做完的项。与 completed 严格区分——
+ * 2026-10-26 巡检日志里清单停在第 2 项 in_progress，报告却引用「已更新 N 项」当进度。
+ */
+export type TaskTodoStatus = 'pending' | 'in_progress' | 'completed' | 'cancelled';
 
 export interface TaskTodoItem {
   content: string;

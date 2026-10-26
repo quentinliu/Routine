@@ -148,7 +148,13 @@ export class OpenAICompatProvider implements LLMProvider {
 
     let toolCalls: LLMToolCall[] | undefined;
     let truncated = false;
+    /** 覆盖前先留存上游给出的真实 finish_reason */
+    const upstreamFinish = finishReason;
     if (toolAcc.size > 0) {
+      // 有 tool_calls 不等于输出完整：finish_reason=length 或流被提前关闭时，
+      // 最后一个调用的 JSON 常常只写了一半。必须标 truncated，让策略层丢弃它，
+      // 否则半截 SQL / 半截路径会被当成完整参数执行。
+      truncated = !sawTerminator || upstreamFinish === 'length';
       toolCalls = [...toolAcc.entries()]
         .sort((a, b) => a[0] - b[0])
         .map(([, acc], n) => ({

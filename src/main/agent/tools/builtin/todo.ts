@@ -2,7 +2,7 @@ import type { TaskTodoItem, TaskTodoStatus } from '../../../../shared/types';
 import type { ToolDefinition } from '../types';
 
 const MAX_TODOS = 20;
-const VALID_STATUSES: TaskTodoStatus[] = ['pending', 'in_progress', 'completed'];
+const VALID_STATUSES: TaskTodoStatus[] = ['pending', 'in_progress', 'completed', 'cancelled'];
 
 /**
  * 会话内的清单状态：增量下发（只发变化的项）必须有地方做基线。
@@ -63,6 +63,28 @@ function patchExisting(raw: unknown, baseline: readonly TaskTodoItem[]): TaskTod
     }
   });
   return next;
+}
+
+/**
+ * 任务收尾：不允许清单停在 pending / in_progress。
+ *
+ * 停工项统一置 cancelled 而不是 completed —— 谎报完成会让后续「回答时引用清单」
+ * 变成假进度（2026-10-26 巡检报告的「已更新 3 项子任务」就是这么被误读的）。
+ * 返回 null 表示本次任务从未写过清单。
+ */
+export function finalizeSessionTodos(
+  sessionId: string
+): { todos: TaskTodoItem[]; open: TaskTodoItem[] } | null {
+  const key = sessionId || 'default';
+  const current = sessionTodos.get(key);
+  if (!current || current.length === 0) return null;
+  // cancelled 已经收过尾，不能再算「未完成」，否则同一会话的后续任务会反复告警
+  const isOpen = (t: TaskTodoItem): boolean => t.status === 'pending' || t.status === 'in_progress';
+  const open = current.filter(isOpen);
+  if (open.length === 0) return { todos: current, open };
+  const todos = current.map((t) => (isOpen(t) ? { ...t, status: 'cancelled' as TaskTodoStatus } : t));
+  sessionTodos.set(key, todos);
+  return { todos, open };
 }
 
 export function createTodoTools(): ToolDefinition[] {

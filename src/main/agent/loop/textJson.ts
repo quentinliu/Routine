@@ -1,6 +1,7 @@
 import type { LLMChatMessage, LLMRequest, LLMResponse } from '../../llm/provider';
 import type { AgentLoopStep, AgentLoopStrategy, LoopObservation } from './types';
 import { extractJsonObject, salvageJsonObject } from '../../util/jsonExtract';
+import { TEXT_JSON_DECISION_MAX_TOKENS } from './limits';
 
 interface PlanAction {
   tool: string;
@@ -74,7 +75,15 @@ export class TextJsonStrategy implements AgentLoopStrategy {
     _tools: unknown,
     signal: AbortSignal
   ): LLMRequest {
-    return { system, messages, jsonMode: true, temperature: 0.2, signal };
+    return {
+      system,
+      messages,
+      jsonMode: true,
+      temperature: 0.2,
+      // 决策 JSON 很短，但 thought 常被写长；2048 会在写 JSON 途中被切断
+      maxTokens: TEXT_JSON_DECISION_MAX_TOKENS,
+      signal
+    };
   }
 
   parseStep(res: LLMResponse): AgentLoopStep {
@@ -90,6 +99,7 @@ export class TextJsonStrategy implements AgentLoopStrategy {
       return {
         type: 'retry',
         assistantRaw: res.content,
+        reason: res.truncated ? 'truncated' : 'parse',
         correction: res.truncated
           ? '上一条输出被截断（未收到结束标记）。请重新只输出一个短小的 JSON 对象：调工具用 action，可作答用 {"action": null, "done": true}；不要在 JSON 里写回答正文'
           : 'JSON 格式错误，请重新只输出一个严格的 JSON 对象'
@@ -124,6 +134,7 @@ export class TextJsonStrategy implements AgentLoopStrategy {
     return {
       type: 'retry',
       assistantRaw: res.content,
+      reason: 'parse',
       correction: '请给出 action（调用工具）或 done: true（可以作答），二者必须有其一'
     };
   }

@@ -28,7 +28,13 @@ export interface LoopObservation {
 export type AgentLoopStep =
   | { type: 'final'; text: string }
   | { type: 'answer'; reason: 'done' | 'truncated' | 'budget' }
-  | { type: 'retry'; assistantRaw: string; correction: string }
+  | {
+      type: 'retry';
+      assistantRaw: string;
+      correction: string;
+      /** truncated：上游输出被截断（可重试）；parse：格式/协议不合法 */
+      reason?: 'truncated' | 'parse';
+    }
   | { type: 'calls'; thought?: string; assistantRaw: string; calls: LoopCall[] };
 
 /**

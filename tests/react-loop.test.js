@@ -599,3 +599,192 @@ test('FC 兜底：步数耗尽时最终回答携带全部工具结果（不丢 o
     assert.ok(!String(digestMsg.content).includes('（无）'), '摘要不应为空');
   });
 });
+
+test('FC 决策轮被截断：纠正重试后继续执行工具，不静默降级', async () => {
+  await withTmp(async () => {
+    const { registry, calls } = makeRegistry();
+    const provider = scriptedProvider([
+      // 2026-10-26 巡检事故复现：2048 上限截断，content 与 tool_calls 全空
+      { content: '', finishReason: 'length', truncated: true, usage: { prompt: 5752, completion: 2048 } },
+      {
+        content: '',
+        finishReason: 'tool_calls',
+        toolCalls: [{ id: 'c1', name: 'search.web', arguments: '{"query":"AI 新闻"}' }]
+      },
+      { content: '按工具结果完成', finishReason: 'stop' }
+    ]);
+    const orch = new Orchestrator({
+      router: makeRouter(provider),
+      safety: new SafetyGate(),
+      registry
+    });
+    const events = [];
+    const final = await orch.handleUserMessage('ses-truncated', '查新闻', (e) => events.push(e));
+
+    assert.strictEqual(final, '按工具结果完成');
+    assert.deepStrictEqual(calls.web, [['AI 新闻', 6]], '纠正后应真正执行工具');
+
+    const correction = provider.requests[1].messages.find(
+      (m) => m.role === 'user' && String(m.content).includes('输出上限截断')
+    );
+    assert.ok(correction, '纠正话术必须真正回灌进消息历史');
+    assert.ok(
+      events.some(
+        (e) => e.type === 'trace' && e.event.phase === 'notice' && String(e.event.notice).includes('已要求模型只提交工具调用')
+      ),
+      '截断重试应经 notice 进执行过程，不能静默'
+    );
+  });
+});
+
+test('任务收尾：未完成项置 cancelled 并告警，不谎报 completed', async () => {
+  await withTmp(async () => {
+    const { registry } = makeRegistry();
+    const provider = scriptedProvider([
+      {
+        content: '先建计划',
+        finishReason: 'tool_calls',
+        toolCalls: [
+          {
+            id: 't1',
+            name: 'todo.write',
+            arguments: JSON.stringify({
+              todos: [
+                { content: '采集连接', status: 'completed' },
+                { content: '采集磁盘', status: 'in_progress' },
+                { content: '写报告', status: 'pending' }
+              ]
+            })
+          }
+        ]
+      },
+      { content: '报告正文', finishReason: 'stop' }
+    ]);
+    const orch = new Orchestrator({
+      router: makeRouter(provider),
+      safety: new SafetyGate(),
+      registry
+    });
+    const events = [];
+    await orch.handleUserMessage('ses-todo-final', '巡检', (e) => events.push(e));
+
+    const todoEvents = events.filter((e) => e.type === 'todo');
+    const last = todoEvents.at(-1);
+    assert.deepStrictEqual(
+      last.todos.map((t) => t.status),
+      ['completed', 'cancelled', 'cancelled'],
+      '收尾应收敛为 completed / cancelled'
+    );
+    assert.ok(
+      events.some(
+        (e) =>
+          e.type === 'trace' &&
+          e.event.phase === 'notice' &&
+          String(e.event.notice).includes('未完成') &&
+          String(e.event.notice).includes('采集磁盘')
+      ),
+      '未完成项应显式告警'
+    );
+
+    // 同一会话的后续任务不该被上一轮已 cancelled 的项反复告警
+    const events2 = [];
+    await orch.handleUserMessage('ses-todo-final', '再问一句', (e) => events2.push(e));
+    assert.ok(
+      !events2.some((e) => e.type === 'trace' && String(e.event.notice).includes('未完成')),
+      '已 cancelled 的项不应在下一个任务里再次告警'
+    );
+  });
+});
+
+test('历史技能概览按轮压缩，避免 2~3k 字符逐轮复利', async () => {
+  await withTmp(async () => {
+    const { registry } = makeRegistry();
+    const overview = JSON.stringify({
+      skill: 'mysql-batch-health-check',
+      version: '1.0.0',
+      content: '【Routine 环境适配】' + '所有 SQL 一律通过 db.query 执行。'.repeat(80) + '【章节清单】1. Overview 2. Dimensions'
+    });
+    assert.ok(overview.length > 1800, '构造的技能概览应超过压缩阈值');
+    registry.register({
+      name: 'skill.run',
+      description: '激活技能',
+      inputSchema: { type: 'object', properties: {} },
+      agent: 'db',
+      risk: 'safe',
+      maxResultChars: 4000,
+      async execute() {
+        return overview;
+      }
+    });
+    const infoCall = {
+      content: '',
+      finishReason: 'tool_calls',
+      toolCalls: [{ id: 'i1', name: 'computer.info', arguments: '{}' }]
+    };
+    const provider = scriptedProvider([
+      { content: '', finishReason: 'tool_calls', toolCalls: [{ id: 's1', name: 'skill.run', arguments: '{}' }] },
+      infoCall,
+      infoCall,
+      { content: '完成', finishReason: 'stop' }
+    ]);
+    const orch = new Orchestrator({
+      router: makeRouter(provider),
+      safety: new SafetyGate(),
+      registry
+    });
+    await orch.handleUserMessage('ses-skill-compact', '巡检', () => {});
+
+    const skillMsg = provider.requests[3].messages.find((m) => String(m.content).includes('"skill"'));
+    assert.ok(skillMsg, '历史里仍应保留这条技能结果（便于识别）');
+    assert.ok(
+      String(skillMsg.content).includes('历史轮次只保留头尾'),
+      '旧轮次的技能概览应被压缩成摘要'
+    );
+    assert.ok(
+      String(skillMsg.content).includes('【章节清单】'),
+      '压缩必须保留尾部章节清单，否则模型失去按章取用的索引'
+    );
+    assert.ok(
+      String(skillMsg.content).length < 1400,
+      `压缩后长度应受控（实际 ${String(skillMsg.content).length}）`
+    );
+  });
+});
+
+test('openaiCompat：tool_calls 流被提前关闭时标记 truncated', async () => {
+  const chunks = [
+    'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"c1","function":{"name":"file.search","arguments":"{\\"query\\":\\"a\\"}"}}]}}]}',
+    'data: [DONE]'
+  ];
+  const encoder = new TextEncoder();
+  const makeStream = (list) =>
+    new ReadableStream({
+      start(controller) {
+        for (const c of list) controller.enqueue(encoder.encode(`${c}\n\n`));
+        controller.close();
+      }
+    });
+  const originalFetch = globalThis.fetch;
+  try {
+    // finish_reason=length：参数可能只写了一半
+    globalThis.fetch = async () =>
+      new Response(
+        makeStream([
+          'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"c1","function":{"name":"file.search","arguments":"{\\"que"}}]}}]}',
+          'data: {"choices":[{"delta":{},"finish_reason":"length"}]}'
+        ]),
+        { headers: { 'content-type': 'text/event-stream' } }
+      );
+    const provider = new OpenAICompatProvider('http://x', 'k', 'm');
+    const hitLength = await provider.chatStream({ system: 's', messages: [], signal: new AbortController().signal }, () => {});
+    assert.strictEqual(hitLength.truncated, true, 'finish_reason=length 应标记截断');
+    assert.strictEqual(hitLength.finishReason, 'tool_calls');
+
+    // 完整收尾：不应误报截断
+    globalThis.fetch = async () => new Response(makeStream(chunks), { headers: { 'content-type': 'text/event-stream' } });
+    const ok = await provider.chatStream({ system: 's', messages: [], signal: new AbortController().signal }, () => {});
+    assert.strictEqual(ok.truncated, false, '完整 tool_calls 流不应标记截断');
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
