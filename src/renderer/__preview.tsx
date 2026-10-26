@@ -114,15 +114,7 @@ useAppStore.setState({
   },
   streamingMsg: { id: 'm3', content: '正在汇总搜索结果，稍后给出结论。' },
   runningSessionId: s,
-  runningStartedAt: now - 9000,
-  todosBySession: {
-    [s]: [
-      { content: '定位桌面上的报告文件', status: 'completed' },
-      { content: '读取年度报告关键结论', status: 'completed' },
-      { content: '检索最新 AI 新闻并对比', status: 'in_progress' },
-      { content: '汇总成最终结论', status: 'pending' }
-    ]
-  }
+  runningStartedAt: now - 9000
 });
 
 createRoot(document.getElementById('root')!).render(

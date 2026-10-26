@@ -9,8 +9,6 @@ import { AGENT_NAMES,
   type LogEntry,
   type SafetyRequest,
   type Settings,
-  type TaskTodoItem,
-  type TodoUpdateEvent,
   DEFAULT_SETTINGS
 } from '../shared/types';
 import { api } from './ipc';
@@ -19,7 +17,6 @@ import { setThemeMode } from './theme';
 const now = () => Date.now();
 
 const EMPTY_TURNS: TurnTrace[] = [];
-const EMPTY_TODOS: TaskTodoItem[] = [];
 
 /** 单轮执行过程：主进程一次任务只生成一个 msgId，思考与工具事件都挂在同一轮下 */
 export interface TurnTrace {
@@ -89,7 +86,7 @@ export interface StreamingMsg {
   content: string;
 }
 
-export { EMPTY_TURNS, EMPTY_TODOS };
+export { EMPTY_TURNS };
 
 interface AppState {
   settings: Settings;
@@ -103,7 +100,6 @@ interface AppState {
   logs: LogEntry[];
   /** 按会话的轮次执行过程（内存态，重载会话不恢复） */
   turnsBySession: Record<string, TurnTrace[]>;
-  todosBySession: Record<string, TaskTodoItem[]>;
   pendingSafety: SafetyRequest | null;
   indexProgress: IndexProgress | null;
   chatError: string | null;
@@ -133,7 +129,6 @@ interface AppState {
   setAgentStatus(s: AgentStatus): void;
   pushLog(l: LogEntry): void;
   pushTrace(e: AgentTraceEvent): void;
-  pushTodoUpdate(e: TodoUpdateEvent): void;
   receiveDelta(sessionId: string, msgId: string, delta: string, done: boolean): void;
   setChatError(e: string | null, sessionId?: string): void;
   setPendingSafety(r: SafetyRequest | null): void;
@@ -161,7 +156,6 @@ export const useAppStore = create<AppState>()((set, get) => ({
   agents: idleAgents(),
   logs: [],
   turnsBySession: {},
-  todosBySession: {},
   pendingSafety: null,
   indexProgress: null,
   chatError: null,
@@ -227,9 +221,7 @@ export const useAppStore = create<AppState>()((set, get) => ({
     // 会话删除后同步丢弃它的过程与进度，避免内存常驻
     set((s) => {
       const turnsBySession = dropSessionTurns(s.turnsBySession, id);
-      const todosBySession = { ...s.todosBySession };
-      delete todosBySession[id];
-      return { turnsBySession, todosBySession };
+      return { turnsBySession };
     });
     const sessions = await api.sessionsList();
     if (sessions.length === 0) {
@@ -270,8 +262,7 @@ export const useAppStore = create<AppState>()((set, get) => ({
           get().turnsBySession[currentSessionId] ?? EMPTY_TURNS,
           now()
         )
-      },
-      todosBySession: { ...get().todosBySession, [currentSessionId]: [] }
+      }
     });
     try {
       await api.chatSend(currentSessionId, text);
@@ -302,12 +293,6 @@ export const useAppStore = create<AppState>()((set, get) => ({
             );
       return { turnsBySession: { ...state.turnsBySession, [e.sessionId]: next } };
     });
-  },
-
-  pushTodoUpdate: (e) => {
-    set((state) => ({
-      todosBySession: { ...state.todosBySession, [e.sessionId]: e.todos }
-    }));
   },
 
   receiveDelta: (sessionId, msgId, delta, done) => {

@@ -1,6 +1,5 @@
 import { useAppStore } from '../store';
 import { clockTime } from '../lib/format';
-import { TaskTodoPanel } from './TaskTodoPanel';
 
 function LogPanel() {
   const logs = useAppStore((s) => s.logs);
@@ -29,7 +28,6 @@ function LogPanel() {
 export function AgentPanel() {
   return (
     <aside className="agent-panel">
-      <TaskTodoPanel />
       <LogPanel />
     </aside>
   );
