@@ -4,6 +4,12 @@ import type { ConversationLogLine, ConversationTaskMeta } from '../../shared/typ
 
 const MAX_FILES = 50;
 const META_SNIPPET_BYTES = 4096;
+/** msgId 白名单：渲染层可传入任意字符串，禁止 `../` 之类的路径穿越 */
+const SAFE_ID = /^[A-Za-z0-9_-]{1,128}$/;
+
+function isSafeId(id: unknown): id is string {
+  return typeof id === 'string' && SAFE_ID.test(id);
+}
 
 export interface TaskBeginInput {
   /** LLM 任务轮次的 msgId，同任务所有条目共用 */
@@ -113,7 +119,27 @@ export class ConversationLog {
     return path.join(this.root, `${id}.jsonl`);
   }
 
+  /** 根目录下的任务日志文件一览（不含子目录与非日志文件） */
+  private logFiles(): string[] {
+    return fs
+      .readdirSync(this.root)
+      .filter((f) => f.endsWith('.jsonl'))
+      .map((f) => path.join(this.root, f));
+  }
+
+  /**
+   * 已存在才追加：文件不存在或 id 非法一律跳过。
+   * 日志写入失败不应影响任务本身，因此这里不抛错。
+   */
+  private appendExisting(id: string, line: object): void {
+    if (!isSafeId(id)) return;
+    const file = this.file(id);
+    if (!fs.existsSync(file)) return;
+    appendLine(file, line);
+  }
+
   begin(input: TaskBeginInput): void {
+    if (!isSafeId(input.id)) return;
     const meta: ConversationTaskMeta & { type: 'task' } = {
       type: 'task',
       id: input.id,
@@ -127,46 +153,54 @@ export class ConversationLog {
   }
 
   round(id: string, r: RoundInput): void {
-    const file = this.file(id);
-    if (!fs.existsSync(file)) return;
-    appendLine(file, { type: 'round', at: Date.now(), ...r });
+    this.appendExisting(id, { type: 'round', at: Date.now(), ...r });
   }
 
   event(id: string, level: 'info' | 'warn' | 'error', text: string): void {
-    const file = this.file(id);
-    if (!fs.existsSync(file)) return;
-    appendLine(file, { type: 'event', at: Date.now(), level, text });
+    this.appendExisting(id, { type: 'event', at: Date.now(), level, text });
   }
 
   tool(id: string, input: ToolLogInput): void {
-    const file = this.file(id);
-    if (!fs.existsSync(file)) return;
-    appendLine(file, { type: 'tool', at: Date.now(), ...input });
+    this.appendExisting(id, { type: 'tool', at: Date.now(), ...input });
   }
 
   safety(id: string, input: SafetyLogInput): void {
-    const file = this.file(id);
-    if (!fs.existsSync(file)) return;
-    appendLine(file, { type: 'safety', at: Date.now(), ...input });
+    this.appendExisting(id, { type: 'safety', at: Date.now(), ...input });
   }
 
   final(id: string, text: string, meta: FinalMeta = {}): void {
-    const file = this.file(id);
-    if (!fs.existsSync(file)) return;
-    appendLine(file, { type: 'final', at: Date.now(), text, ...meta });
+    this.appendExisting(id, { type: 'final', at: Date.now(), text, ...meta });
   }
 
   fatal(id: string, text: string): void {
+    this.appendExisting(id, { type: 'error', at: Date.now(), text });
+  }
+
+  /** 删除单个任务日志；id 非法或文件不存在返回 false */
+  delete(id: string): boolean {
+    if (!isSafeId(id)) return false;
     const file = this.file(id);
-    if (!fs.existsSync(file)) return;
-    appendLine(file, { type: 'error', at: Date.now(), text });
+    if (!fs.existsSync(file)) return false;
+    fs.rmSync(file, { force: true });
+    return true;
+  }
+
+  /** 清空全部任务日志，返回实际删除的文件数；非日志文件保留，单文件失败不中断 */
+  clear(): number {
+    let removed = 0;
+    for (const f of this.logFiles()) {
+      try {
+        fs.rmSync(f, { force: true });
+        removed += 1;
+      } catch {
+        // 单个文件删除失败（占用 / 权限）不影响其余日志
+      }
+    }
+    return removed;
   }
 
   list(limit = 50): ConversationTaskMeta[] {
-    const files = fs
-      .readdirSync(this.root)
-      .filter((f) => f.endsWith('.jsonl'))
-      .map((f) => path.join(this.root, f));
+    const files = this.logFiles();
     const metas: ConversationTaskMeta[] = [];
     for (const f of files) {
       const meta = readMeta(f);
@@ -176,6 +210,7 @@ export class ConversationLog {
   }
 
   read(id: string): { meta: ConversationTaskMeta; lines: ConversationLogLine[] } | null {
+    if (!isSafeId(id)) return null;
     const file = this.file(id);
     if (!fs.existsSync(file)) return null;
     const lines: ConversationLogLine[] = [];
@@ -219,10 +254,7 @@ export class ConversationLog {
   }
 
   private prune(): void {
-    const files = fs
-      .readdirSync(this.root)
-      .filter((f) => f.endsWith('.jsonl'))
-      .map((f) => path.join(this.root, f));
+    const files = this.logFiles();
     if (files.length <= MAX_FILES) return;
     const byAge = files
       .map((f) => ({ f, m: fs.statSync(f).mtimeMs }))
@@ -243,6 +275,10 @@ export interface TaskRunLog {
   fatal(id: string, text: string): void;
   list(limit?: number): ConversationTaskMeta[];
   read(id: string): { meta: ConversationTaskMeta; lines: ConversationLogLine[] } | null;
+  /** 删除单个任务日志；id 非法或文件不存在返回 false */
+  delete(id: string): boolean;
+  /** 清空全部任务日志，返回实际删除的文件数 */
+  clear(): number;
 }
 
 const NULL_LOG: TaskRunLog = {
@@ -254,7 +290,9 @@ const NULL_LOG: TaskRunLog = {
   final: () => {},
   fatal: () => {},
   list: () => [],
-  read: () => null
+  read: () => null,
+  delete: () => false,
+  clear: () => 0
 };
 
 let instance: ConversationLog | null = null;

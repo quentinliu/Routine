@@ -300,3 +300,53 @@ test('混合格式：旧全量轮次后接增量轮次仍可物化', () => {
   assert.strictEqual(rounds[1].system, 'SYS');
   assert.deepStrictEqual(rounds[1].messages, [...base, { role: 'assistant', content: 'a' }]);
 });
+
+test('delete：删除单个任务日志后 read 为 null、list 不再包含，重复删除返回 false', () => {
+  const log = new ConversationLog(tmpDir());
+  log.begin({ id: 'keep', sessionId: 's', task: '保留', provider: 'p' });
+  log.begin({ id: 'drop', sessionId: 's', task: '删除', provider: 'p' });
+
+  assert.strictEqual(log.delete('drop'), true);
+  assert.strictEqual(log.read('drop'), null);
+  assert.deepStrictEqual(
+    log.list().map((m) => m.id),
+    ['keep']
+  );
+  assert.strictEqual(log.delete('drop'), false, '文件已不存在应返回 false');
+  assert.strictEqual(log.delete('never-existed'), false);
+});
+
+test('clear：清空全部任务日志并返回实际条数，保留非日志文件', () => {
+  const dir = tmpDir();
+  const log = new ConversationLog(dir);
+  log.begin({ id: 't-a', sessionId: 's', task: 'A', provider: 'p' });
+  log.begin({ id: 't-b', sessionId: 's', task: 'B', provider: 'p' });
+  fs.writeFileSync(path.join(dir, 'notes.txt'), 'x', 'utf-8');
+
+  assert.strictEqual(log.clear(), 2);
+  assert.strictEqual(log.list().length, 0);
+  assert.deepStrictEqual(fs.readdirSync(dir), ['notes.txt']);
+  assert.strictEqual(log.clear(), 0, '空目录清空返回 0');
+});
+
+test('路径穿越防护：非法 id 不读取、不删除、不写入根目录之外', () => {
+  const base = tmpDir();
+  const dir = path.join(base, 'logs');
+  const log = new ConversationLog(dir);
+  const outside = path.join(base, 'escape.jsonl');
+  fs.writeFileSync(
+    outside,
+    `${JSON.stringify({ type: 'task', id: 'escape', sessionId: 's', task: '越界', provider: 'p', ts: 1 })}\n`,
+    'utf-8'
+  );
+
+  assert.strictEqual(log.read('../escape'), null);
+  assert.strictEqual(log.delete('../escape'), false);
+  assert.ok(fs.existsSync(outside), '根目录外的同名文件不得被删除');
+  log.begin({ id: '../escape', sessionId: 's', task: '越界写入', provider: 'p' });
+  assert.strictEqual(
+    fs.readFileSync(outside, 'utf-8').trim().split('\n').length,
+    1,
+    '非法 id 的 begin 应被忽略，不得向根目录外追加'
+  );
+});

@@ -104,6 +104,8 @@ export const IPC = {
   // invoke (renderer → main) — 完整对话日志（U5 契约批准 2026-10-26，见 CONTRACTS.md 变更记录）
   ConversationList: 'conversation:list',
   ConversationGet: 'conversation:get',
+  ConversationDelete: 'conversation:delete',
+  ConversationClear: 'conversation:clear',
   // events (main → renderer)
   ChatDelta: 'chat:delta',
   ChatError: 'chat:error',
@@ -213,6 +215,10 @@ export interface RoutineApi {
   /** 完整对话日志：按开始时间倒序的任务元数据（U5） */
   conversationList(limit?: number): Promise<ConversationTaskMeta[]>;
   conversationGet(id: string): Promise<ConversationLogView | null>;
+  /** 删除单个任务日志；id 非法或文件不存在返回 false */
+  conversationDelete(id: string): Promise<boolean>;
+  /** 清空全部任务日志，返回实际删除的条数 */
+  conversationClear(): Promise<number>;
 
   onChatDelta(cb: (e: ChatDeltaEvent) => void): () => void;
   onChatError(cb: (e: ChatErrorEvent) => void): () => void;

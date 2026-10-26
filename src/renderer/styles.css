@@ -1784,6 +1784,7 @@ button:disabled { opacity: 0.45; cursor: default; }
   padding-right: 8px;
 }
 .convlog-item {
+  position: relative;
   display: flex;
   flex-direction: column;
   align-items: flex-start;
@@ -1793,11 +1794,28 @@ button:disabled { opacity: 0.45; cursor: default; }
   border-radius: 8px;
   background: transparent;
   color: var(--fg);
-  padding: 8px 10px;
+  padding: 8px 28px 8px 10px;
   cursor: pointer;
 }
 .convlog-item:hover { background: var(--hover); }
 .convlog-item.active { background: var(--accent-dim); }
+.convlog-item:focus-visible { outline: 1px solid var(--accent); outline-offset: -1px; }
+.convlog-item-delete {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  opacity: 0;
+  color: var(--fg-dim);
+  display: grid;
+  place-items: center;
+  padding: 3px;
+  border-radius: 5px;
+  transition: opacity .15s;
+}
+.convlog-item:hover .convlog-item-delete,
+.convlog-item:focus-within .convlog-item-delete { opacity: 1; }
+.convlog-item-delete:hover { color: var(--danger); background: var(--danger-dim); }
+.convlog-item-delete:focus-visible { outline: 1px solid var(--danger); outline-offset: 1px; }
 .convlog-item-task {
   font-size: 12.5px;
   line-height: 1.4;

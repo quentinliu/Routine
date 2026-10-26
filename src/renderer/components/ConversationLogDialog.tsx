@@ -168,6 +168,8 @@ function LineBlock({ line }: { line: ConversationLogLine }) {
 
 export function ConversationLogDialog() {
   const setConvLogOpen = useAppStore((s) => s.setConvLogOpen);
+  const requestConfirm = useAppStore((s) => s.requestConfirm);
+  const setNotice = useAppStore((s) => s.setNotice);
   const [list, setList] = useState<ConversationTaskMeta[]>([]);
   const [selected, setSelected] = useState<ConversationLogView | null>(null);
   const [loading, setLoading] = useState(false);
@@ -193,6 +195,47 @@ export function ConversationLogDialog() {
     if (selected) void navigator.clipboard.writeText(JSON.stringify(selected, null, 2));
   }
 
+  /** 删除单个任务日志：清掉详情区选中态，避免仍展示已消失的文件内容 */
+  async function doRemove(id: string): Promise<void> {
+    try {
+      await api.conversationDelete(id);
+      if (selected?.meta.id === id) setSelected(null);
+      await refresh();
+    } catch (err) {
+      setNotice(`删除日志失败：${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
+
+  async function doClear(): Promise<void> {
+    try {
+      await api.conversationClear();
+      setSelected(null);
+      await refresh();
+    } catch (err) {
+      setNotice(`清空日志失败：${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
+
+  function remove(t: ConversationTaskMeta): void {
+    requestConfirm({
+      message: `删除对话日志「${t.task}」？\n\n仅删除该任务的模型调用记录，不可恢复；不影响会话内容。`,
+      danger: true,
+      onConfirm: () => {
+        void doRemove(t.id);
+      }
+    });
+  }
+
+  function clearAll(): void {
+    requestConfirm({
+      message: `清空全部 ${list.length} 条对话日志？\n\n不可恢复；不影响会话内容与正在生成的回答。`,
+      danger: true,
+      onConfirm: () => {
+        void doClear();
+      }
+    });
+  }
+
   return (
     <div className="modal-overlay" onClick={() => setConvLogOpen(false)}>
       <div className="modal convlog-modal" onClick={(e) => e.stopPropagation()}>
@@ -207,6 +250,9 @@ export function ConversationLogDialog() {
             <button className="btn-mini" onClick={() => void refresh()}>
               刷新
             </button>
+            <button className="btn-mini danger" onClick={clearAll} disabled={list.length === 0}>
+              清空全部
+            </button>
             <button className="modal-close" onClick={() => setConvLogOpen(false)}>
               ×
             </button>
@@ -217,17 +263,42 @@ export function ConversationLogDialog() {
           <div className="convlog-list">
             {list.length === 0 && <p className="convlog-empty">暂无任务日志</p>}
             {list.map((t) => (
-              <button
+              // 用 div 承载行，内部才能放删除按钮（button 不能嵌套 button）
+              <div
                 key={t.id}
-                type="button"
+                role="button"
+                tabIndex={0}
                 className={`convlog-item${selected?.meta.id === t.id ? ' active' : ''}`}
                 onClick={() => void open(t.id)}
+                onKeyDown={(e) => {
+                  if (e.key !== 'Enter' && e.key !== ' ') return;
+                  e.preventDefault();
+                  void open(t.id);
+                }}
               >
                 <span className="convlog-item-task">{t.task}</span>
                 <span className="convlog-item-meta">
                   {clockTime(t.ts)} · {t.provider}
                 </span>
-              </button>
+                <button
+                  type="button"
+                  className="convlog-item-delete"
+                  title="删除该任务日志"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    remove(t);
+                  }}
+                >
+                  <svg viewBox="0 0 24 24" width="12" height="12" aria-hidden>
+                    <path
+                      d="M6 6l12 12M18 6L6 18"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                    />
+                  </svg>
+                </button>
+              </div>
             ))}
           </div>
 

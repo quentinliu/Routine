@@ -58,6 +58,8 @@ const CH = {
   SkillPickDir: 'skill:pick-dir',
   ConversationList: 'conversation:list',
   ConversationGet: 'conversation:get',
+  ConversationDelete: 'conversation:delete',
+  ConversationClear: 'conversation:clear',
   ChatDelta: 'chat:delta',
   ChatError: 'chat:error',
   AgentStatus: 'agent:status',
@@ -141,6 +143,8 @@ const api: RoutineApi = {
   skillRemove: (name) => ipcRenderer.invoke(CH.SkillRemove, { name }),
   conversationList: (limit) => ipcRenderer.invoke(CH.ConversationList, { limit }),
   conversationGet: (id) => ipcRenderer.invoke(CH.ConversationGet, { id }),
+  conversationDelete: (id) => ipcRenderer.invoke(CH.ConversationDelete, { id }),
+  conversationClear: () => ipcRenderer.invoke(CH.ConversationClear),
 
   onChatDelta: (cb) => subscribe(CH.ChatDelta, cb),
   onChatError: (cb) => subscribe(CH.ChatError, cb),

@@ -389,6 +389,10 @@ export function registerIpc(): void {
     getConversationLog().list(p?.limit)
   );
   ipcMain.handle(IPC.ConversationGet, (_e, p: { id: string }) => getConversationLog().read(p.id));
+  ipcMain.handle(IPC.ConversationDelete, (_e, p: { id?: unknown }) =>
+    typeof p?.id === 'string' ? getConversationLog().delete(p.id) : false
+  );
+  ipcMain.handle(IPC.ConversationClear, () => getConversationLog().clear());
 
   const mcp = initMcpService(getRegistry());
   mcp.setLogFn((text, level) =>
