@@ -1,6 +1,6 @@
 {
   "name": "routine",
-  "version": "0.6.0",
+  "version": "0.6.1",
   "description": "Routine - 操作系统级 AI 助手（macOS / Windows）",
   "main": "dist-main/main/index.js",
   "author": "liuxuebai",
@@ -16,9 +16,9 @@
     "start": "npm run compile:main && electron .",
     "dev": "node scripts/dev.js",
     "login:oceanbase": "node scripts/login-oceanbase.js",
-    "package": "npm run compile:main && npm run build && electron-builder --mac",
-    "package:win": "npm run compile:main && npm run build && electron-builder --win",
-    "package:all": "npm run compile:main && npm run build && electron-builder --mac --win"
+    "package": "npm run compile:main && npm run build && node scripts/builder.js --mac",
+    "package:win": "npm run compile:main && npm run build && node scripts/builder.js --win",
+    "package:all": "npm run compile:main && npm run build && node scripts/builder.js --mac --win"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.32.1",
