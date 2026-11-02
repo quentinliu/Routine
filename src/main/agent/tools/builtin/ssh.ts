@@ -2,6 +2,7 @@ import type { SshHostConfig } from '../../../../shared/types';
 import type { SshService } from '../../../services/ssh/service';
 import { resolveHostRef, validateSshCommand } from '../../../services/ssh/util';
 import { SECTION_ORDERS } from '../../prompt/registry';
+import { assertSshHostAllowed, sshScopeTarget } from '../../resources';
 import type { ToolDefinition } from '../types';
 
 function formatSshHostsBlock(hosts: SshHostConfig[]): string {
@@ -60,6 +61,12 @@ export function createSshTools(ssh: SshService): ToolDefinition[] {
       risk: 'medium',
       // 安全底线：远程命令不允许被 Settings.riskOverrides 降为 safe（否则一条设置即可静默执行）
       riskFloor: 'medium',
+      // 会话引用了主机时只允许这些主机：按解析后的 id 比对，避免名称/模糊匹配绕过
+      validate: (args, ctx) => {
+        if ((ctx.scope?.sshHosts ?? []).length === 0) return;
+        const host = resolveHostRef(ssh.listHosts(), String(args.host ?? ''));
+        assertSshHostAllowed(ctx.scope, sshScopeTarget(host));
+      },
       promptSection: {
         name: 'tool:ssh',
         order: SECTION_ORDERS.TOOL_GUIDES + 10,

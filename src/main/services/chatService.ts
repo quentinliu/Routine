@@ -94,7 +94,9 @@ export class ChatService {
         session.id,
         input.text,
         bridge,
-        session.messages.slice(0, -1)
+        session.messages.slice(0, -1),
+        // 会话级 @ 引用：任务开始时一次性快照，中途修改只影响下一轮
+        scheduled ? undefined : session.refs
       );
     } catch (err) {
       failed = err instanceof Error ? err.message : String(err);
@@ -118,6 +120,10 @@ export class ChatService {
       });
       session.updatedAt = Date.now();
     }
+    // 引用可能在任务执行期间被用户增删：落盘前取最新 refs，
+    // 否则本函数的旧内存副本会把刚设好的引用覆盖掉（sessions.json 是整文件读改写）
+    const latest = storage.listSessions().find((s) => s.id === session.id);
+    if (latest) session.refs = latest.refs;
     storage.saveSession(session);
 
     return {

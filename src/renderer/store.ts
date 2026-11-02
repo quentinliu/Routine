@@ -1,14 +1,18 @@
 import { create } from 'zustand';
 import { AGENT_NAMES,
+  MAX_SESSION_REFS,
   type AgentName,
   type AgentStatus,
   type AgentTraceEvent,
   type ChatMessage,
   type ChatSession,
+  type DatasourceConfig,
   type IndexProgress,
   type LogEntry,
+  type ResourceRef,
   type SafetyRequest,
   type Settings,
+  type SshHostConfig,
   DEFAULT_SETTINGS
 } from '../shared/types';
 import { api } from './ipc';
@@ -86,6 +90,37 @@ export interface StreamingMsg {
   content: string;
 }
 
+/** `@` 选择器用的资源清单缓存：只在首次打开菜单时拉取，避免每次击键发 IPC */
+export interface ResourceCache {
+  datasources: DatasourceConfig[];
+  sshHosts: SshHostConfig[];
+}
+
+/**
+ * 引用写入串行化：连续增删时保证 IPC 顺序与最终状态一致。
+ * 落盘失败只记日志，不回滚界面——下一次修改会带着完整数组重写。
+ */
+let refsWriteChain: Promise<void> = Promise.resolve();
+
+function persistSessionRefs(sessionId: string, refs: ResourceRef[]): void {
+  refsWriteChain = refsWriteChain.then(async () => {
+    try {
+      const updated = await api.sessionsSetRefs(sessionId, refs);
+      useAppStore.setState((state) => ({
+        sessions: state.sessions.map((s) =>
+          s.id === sessionId ? { ...s, refs: updated.refs ?? [] } : s
+        )
+      }));
+    } catch (err) {
+      console.error('[refs] 保存会话引用失败', err);
+    }
+  });
+}
+
+function patchSessionRefs(sessions: ChatSession[], sessionId: string, refs: ResourceRef[]): ChatSession[] {
+  return sessions.map((s) => (s.id === sessionId ? { ...s, refs } : s));
+}
+
 export { EMPTY_TURNS };
 
 interface AppState {
@@ -112,6 +147,9 @@ interface AppState {
   dbWorkbenchDatasourceId: string | null;
   /** 待写入 Composer 的草稿（工作台「在对话中诊断」预填） */
   composerDraft: string;
+  /** `@` 资源清单缓存：null = 尚未成功加载 */
+  resources: ResourceCache | null;
+  resourcesLoading: boolean;
   runningSessionId: string | null;
   /** 当前任务提交时间；用于首个步骤到达前的运行状态行秒表 */
   runningStartedAt: number | null;
@@ -142,6 +180,9 @@ interface AppState {
   closeDbWorkbench(): void;
   prefillComposer(text: string): void;
   consumeComposerDraft(): void;
+  refreshResources(force?: boolean): Promise<void>;
+  addSessionRef(ref: ResourceRef): void;
+  removeSessionRef(ref: ResourceRef): void;
   applySettings(s: Settings): void;
   setNotice(message: string | null): void;
   requestConfirm(request: ConfirmRequest): void;
@@ -168,6 +209,8 @@ export const useAppStore = create<AppState>()((set, get) => ({
   dbWorkbenchOpen: false,
   dbWorkbenchDatasourceId: null,
   composerDraft: '',
+  resources: null,
+  resourcesLoading: false,
   runningSessionId: null,
   runningStartedAt: null,
   notice: null,
@@ -268,6 +311,8 @@ export const useAppStore = create<AppState>()((set, get) => ({
       }
     });
     try {
+      // 刚选完资源就回车：先等引用落盘，主进程才能读到本轮 scope
+      await refsWriteChain;
       await api.chatSend(currentSessionId, text);
     } catch {
       set({ runningSessionId: null, runningStartedAt: null });
@@ -369,6 +414,47 @@ export const useAppStore = create<AppState>()((set, get) => ({
   closeDbWorkbench: () => set({ dbWorkbenchOpen: false }),
   prefillComposer: (text) => set({ composerDraft: text }),
   consumeComposerDraft: () => set({ composerDraft: '' }),
+
+  refreshResources: async (force = false) => {
+    // 进行中的请求不重复发；非强制且已有缓存则直接复用
+    if (get().resourcesLoading) return;
+    if (!force && get().resources !== null) return;
+    set({ resourcesLoading: true });
+    try {
+      const [datasources, sshHosts] = await Promise.all([api.dbList(), api.sshList()]);
+      set({ resources: { datasources, sshHosts }, resourcesLoading: false });
+    } catch (err) {
+      // 预览页没有 window.api：保留 null 让菜单显示空态，不能因取数失败白屏
+      console.error('[refs] 读取资源清单失败', err);
+      set({ resourcesLoading: false });
+    }
+  },
+
+  addSessionRef: (ref) => {
+    const { currentSessionId, sessions } = get();
+    const session = sessions.find((s) => s.id === currentSessionId);
+    if (!session) return;
+    const current = session.refs ?? [];
+    if (current.some((r) => r.kind === ref.kind && r.id === ref.id)) return;
+    if (current.length >= MAX_SESSION_REFS) {
+      set({ notice: `最多引用 ${MAX_SESSION_REFS} 个资源，请先移除一个` });
+      return;
+    }
+    const next = [...current, ref];
+    set({ sessions: patchSessionRefs(sessions, currentSessionId, next) });
+    persistSessionRefs(currentSessionId, next);
+  },
+
+  removeSessionRef: (ref) => {
+    const { currentSessionId, sessions } = get();
+    const session = sessions.find((s) => s.id === currentSessionId);
+    if (!session) return;
+    const current = session.refs ?? [];
+    const next = current.filter((r) => !(r.kind === ref.kind && r.id === ref.id));
+    if (next.length === current.length) return;
+    set({ sessions: patchSessionRefs(sessions, currentSessionId, next) });
+    persistSessionRefs(currentSessionId, next);
+  },
   applySettings: (s) => {
     setThemeMode(s.appearance?.theme ?? 'system');
     set({ settings: s });

@@ -69,6 +69,9 @@ export class ToolRegistry {
     const def = this.defs.get(name);
     if (!def) throw new Error(`未知工具: ${name}`);
 
+    // 硬校验先于风险分级：会话资源引用越界不应先弹确认框再报错
+    def.validate?.(args, ctx);
+
     const baseRisk = typeof def.risk === 'function' ? def.risk(args) : def.risk;
     const risk = this.safety.effectiveRisk(name, baseRisk, def.riskFloor);
     if (risk !== 'safe') {

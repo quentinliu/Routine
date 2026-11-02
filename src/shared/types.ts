@@ -114,12 +114,37 @@ export interface ChatMessage {
   createdAt: number;
 }
 
+// ===== 会话级资源引用（U15 契约批准 2026-11-02，见 CONTRACTS.md 变更记录）=====
+
+/**
+ * 对话框 `@` 可引用的资源类别。
+ * 只收数据库数据源与 SSH 主机：它们是「执行目标可能选错」的资源，
+ * 文件/技能/MCP 不在本契约范围。
+ */
+export type ResourceRefKind = 'datasource' | 'sshHost';
+
+/** 单会话引用上限：保证提示词块恒定在十几行内，兼容本地小模型上下文预算 */
+export const MAX_SESSION_REFS = 10;
+
+/**
+ * 会话级资源引用：只存 id，真实目标每轮按 id 解析。
+ * label 仅作界面展示与资源已删除时的回退文案，绝不参与权限判断——
+ * 保证「界面上的标签」与「真实可执行范围」始终是同一件事。
+ */
+export interface ResourceRef {
+  kind: ResourceRefKind;
+  id: string;
+  label: string;
+}
+
 export interface ChatSession {
   id: string;
   title: string;
   messages: ChatMessage[];
   createdAt: number;
   updatedAt: number;
+  /** 会话级资源引用；缺省或空数组 = 不限制（全部已配置资源可用） */
+  refs?: ResourceRef[];
 }
 
 export type AgentName =

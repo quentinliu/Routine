@@ -3,6 +3,7 @@ import type { ToolDefinition } from '../types';
 import { getDbService } from '../../../services/db/service';
 import { omitSecretFields } from '../../../util/redact';
 import { SECTION_ORDERS } from '../../prompt/registry';
+import { assertDatasourceAllowed } from '../../resources';
 
 /** 送模型前整键移除凭据字段：返回空串会被模型读成「密码缺失」并误报 */
 function listForModel(): Promise<Array<Partial<DatasourceConfig>>> {
@@ -81,6 +82,8 @@ export function createDbTools(): ToolDefinition[] {
       agent: 'db',
       maxResultChars: 8000,
       risk: 'safe',
+      // 会话引用了数据源时，只允许在这些数据源上查询（越界早于执行直接失败）
+      validate: (args, ctx) => assertDatasourceAllowed(ctx.scope, String(args.datasourceId ?? '')),
       execute: async (args) => {
         const datasourceId = String(args.datasourceId ?? '');
         const sql = String(args.sql ?? '');
@@ -130,6 +133,8 @@ export function createDbTools(): ToolDefinition[] {
       risk: 'medium',
       // 安全底线：写库/管理 SQL 不允许被降为 safe
       riskFloor: 'medium',
+      // 越界校验必须早于审批：用户不该为一个注定被拒的操作点确认
+      validate: (args, ctx) => assertDatasourceAllowed(ctx.scope, String(args.datasourceId ?? '')),
       describe: (args) => ({
         actionSummary: `在数据源上执行管理 SQL：${String(args.sql ?? '').slice(0, 120)}`,
         plan: [

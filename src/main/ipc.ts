@@ -12,12 +12,14 @@ import {
   AGENT_NAMES,
   type ChatSession,
   type DatasourceConfig,
+  type ResourceRef,
   type Settings,
   type SshExecOptions,
   type SshHostConfig,
   type TodoTask
 } from '../shared/types';
 import { OrchestratorEvent } from './agent/orchestrator';
+import { normalizeRefs } from './agent/resources';
 import { getSafetyGate } from './agent/safety';
 import { getRegistry, getOrchestrator, getSkillRegistry } from './composition';
 import { ChatService } from './services/chatService';
@@ -173,6 +175,14 @@ export function registerIpc(): void {
   });
   ipcMain.handle(IPC.SessionsDelete, (_e, p: { id: string }) => {
     storage.deleteSession(p.id);
+  });
+  // 只写 refs：会话消息由 chatService 落盘，两条写路径互不覆盖
+  ipcMain.handle(IPC.SessionsSetRefs, (_e, p: { id: string; refs: ResourceRef[] }): ChatSession => {
+    const found = storage.listSessions().find((s) => s.id === p.id);
+    if (!found) throw new Error(`会话不存在: ${p.id}`);
+    found.refs = normalizeRefs(p.refs);
+    storage.saveSession(found);
+    return found;
   });
 
   ipcMain.handle(IPC.OpenExternal, (_e, p: { url: string }) => {

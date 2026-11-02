@@ -22,6 +22,7 @@ import type {
   McpTestResult,
   ConversationLogView,
   ConversationTaskMeta,
+  ResourceRef,
   SafetyRequest,
   Settings,
   SkillDetail,
@@ -46,6 +47,8 @@ export const IPC = {
   SessionsLoad: 'sessions:load',
   SessionsNew: 'sessions:new',
   SessionsDelete: 'sessions:delete',
+  // 会话级资源引用（U15 契约批准 2026-11-02）：只写 refs，避免整会话覆盖写
+  SessionsSetRefs: 'sessions:refs:set',
   SettingsGet: 'settings:get',
   SettingsSet: 'settings:set',
   FileSearch: 'file:search',
@@ -144,6 +147,8 @@ export interface RoutineApi {
   sessionsLoad(id: string): Promise<ChatSession>;
   sessionsNew(): Promise<ChatSession>;
   sessionsDelete(id: string): Promise<void>;
+  /** 写入会话级资源引用（去重 + 上限 10 条），返回落盘后的会话 */
+  sessionsSetRefs(id: string, refs: ResourceRef[]): Promise<ChatSession>;
   settingsGet(): Promise<Settings>;
   settingsSet(settings: Settings): Promise<Settings>;
   fileSearch(query: string, limit?: number): Promise<FileSearchResult[]>;

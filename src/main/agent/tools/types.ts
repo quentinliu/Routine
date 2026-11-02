@@ -1,6 +1,7 @@
 import type { AgentName, AgentStatus, LogEntry } from '../../../shared/types';
 import type { OrchestratorEvent } from '../orchestrator';
 import type { PromptStrategyId } from '../prompt/registry';
+import type { ResourceScope } from '../resources';
 import type { ApprovalOutcome, RiskClass } from '../safety';
 
 /** 一次审批的结果：由 registry 在等待结束后回调，供编排器落会话日志 */
@@ -29,6 +30,8 @@ export interface ToolContext {
   signal: AbortSignal;
   /** 审批结束回调（仅非 safe 工具会触发） */
   approval?: (info: ApprovalInfo) => void;
+  /** 本会话资源引用范围：空数组/缺省 = 不限制，由编排器按本轮引用注入 */
+  scope?: ResourceScope;
 }
 
 /** 非安全级工具在审批前必须给出的确认文案；缺省字段走 registry 通用兜底 */
@@ -70,6 +73,12 @@ export interface ToolDefinition {
   riskFloor?: RiskClass;
   /** risk 非 safe 时由 registry 调用，产出审批文案；校验类错误应在此抛出（早于审批） */
   describe?: (args: Record<string, unknown>, risk: RiskClass) => SafetyDescriptor;
+  /**
+   * 执行前硬校验（由 registry 在风险分级与审批之前调用）：
+   * 会话资源引用越界等约束在此抛错，保证 safe 工具同样被拦住、
+   * 且不会出现「先弹确认框再报错」的无效审批。
+   */
+  validate?(args: Record<string, unknown>, ctx: ToolContext): void;
   /**
    * 动态提示词上下文（如 SSH 主机清单）：不进 system prompt，
    * 由编排器拼成消息尾部的「运行时上下文」快照。无内容返回空串。

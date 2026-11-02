@@ -5,7 +5,13 @@ import { ChatView } from './components/ChatView';
 import { Sidebar } from './components/Sidebar';
 import { Topbar } from './components/Topbar';
 import { AgentPanel } from './components/AgentPanel';
-import { DEFAULT_SETTINGS, type AgentTraceEvent, type ChatMessage } from '../shared/types';
+import {
+  DEFAULT_SETTINGS,
+  type AgentTraceEvent,
+  type ChatMessage,
+  type DatasourceConfig,
+  type SshHostConfig
+} from '../shared/types';
 
 const s = 's1';
 const now = Date.now();
@@ -92,15 +98,68 @@ const running: AgentTraceEvent[] = [
   }
 ];
 
+const demoDatasources: DatasourceConfig[] = [
+  {
+    id: 'ds-prod',
+    name: '生产库',
+    type: 'mysql',
+    host: '10.0.8.12',
+    port: 3306,
+    user: 'routine',
+    password: '',
+    database: 'orders',
+    enabled: true
+  },
+  {
+    id: 'ds-report',
+    name: '报表库',
+    type: 'postgresql',
+    host: '10.0.8.21',
+    port: 5432,
+    user: 'readonly',
+    password: '',
+    database: 'analytics',
+    enabled: false
+  }
+];
+
+const demoHosts: SshHostConfig[] = [
+  {
+    id: 'ssh-web1',
+    name: 'web-01',
+    host: '10.0.8.31',
+    port: 22,
+    user: 'root',
+    authType: 'key',
+    privateKeyPath: '~/.ssh/id_ed25519',
+    enabled: true
+  },
+  {
+    id: 'ssh-db1',
+    name: 'db-01',
+    host: '10.0.8.12',
+    port: 22,
+    user: 'ops',
+    authType: 'password',
+    password: '',
+    enabled: true
+  }
+];
+
 useAppStore.setState({
   settings: DEFAULT_SETTINGS,
+  resources: { datasources: demoDatasources, sshHosts: demoHosts },
   sessions: [
     {
       id: s,
       title: '整理桌面报告并总结',
       messages: [userMsg, answerMsg],
       createdAt: now - 60000,
-      updatedAt: now
+      updatedAt: now,
+      refs: [
+        { kind: 'datasource', id: 'ds-prod', label: '生产库' },
+        { kind: 'sshHost', id: 'ssh-web1', label: 'web-01' }
+      ]
     },
     { id: 's2', title: '查看电脑配置', messages: [], createdAt: now - 90000, updatedAt: now - 90000 }
   ],

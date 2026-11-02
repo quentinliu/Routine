@@ -2,6 +2,7 @@ import type {
   AgentName,
   AgentStatus,
   LogEntry,
+  ResourceRef,
   SafetyRequest,
   AgentTraceEvent,
   TaskTodoItem
@@ -11,6 +12,9 @@ import type { LLMChatMessage, LLMProvider, LLMResponse } from '../llm/provider';
 import { LlmHttpError } from '../llm/openaiCompat';
 import { getMemoryStore } from '../services/memory';
 import { getConversationLog, type AnswerSource } from '../services/conversationLog';
+import { getDbService } from '../services/db/service';
+import { getSshService } from '../services/ssh/service';
+import { resolveRefs, type ResourceLookup, type ResourceScope } from './resources';
 import type { SkillRegistry } from '../skills/registry';
 import type { SafetyGate } from './safety';
 import type { ToolRegistry } from './tools/registry';
@@ -194,6 +198,10 @@ export class Orchestrator {
   private busy = false;
   /** 分段提示词注册表（工具守则由工具定义自带，装配时收集） */
   private readonly prompts = createPromptRegistry();
+  /** 本任务的资源引用快照（会话级 @ 引用），任务结束即清空 */
+  private refsBlock = '';
+  /** 本任务的工具目标范围；undefined / 空数组 = 不限制 */
+  private scope: ResourceScope | undefined;
 
   constructor(public readonly deps: OrchestratorDeps) {}
 
@@ -273,8 +281,50 @@ export class Orchestrator {
       // 工具的进度提示属任务内事件：落对话日志，warn/error 同步进「执行过程」
       log: (text, level) => this.report(emit, sessionId, msgId, text, level),
       signal: this.abortController?.signal ?? new AbortController().signal,
-      approval: onApproval
+      approval: onApproval,
+      scope: this.scope
     };
+  }
+
+  /**
+   * 解析本任务引用的资源（会话级 @ 引用）：
+   * 产出提示词块 + 工具目标范围；失效引用只告警不阻断。
+   * 单飞实例：任务开始写入、任务结束（finally）清空，后续任务不会继承限制。
+   */
+  private prepareRefs(
+    refs: readonly ResourceRef[],
+    emit: (e: OrchestratorEvent) => void,
+    sessionId: string,
+    msgId: string
+  ): void {
+    this.refsBlock = '';
+    this.scope = undefined;
+    if (refs.length === 0) return;
+    let lookup: ResourceLookup;
+    try {
+      lookup = { datasources: getDbService().list(), sshHosts: getSshService().listHosts() };
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      this.report(emit, sessionId, msgId, `读取资源引用失败，本轮不限制工具目标：${msg}`, 'warn');
+      return;
+    }
+    const resolved = resolveRefs(refs, lookup);
+    this.refsBlock = resolved.block;
+    this.scope = resolved.scope;
+    if (resolved.invalid.length > 0) {
+      const names = resolved.invalid.map((i) => `${i.ref.label}（${i.reason}）`).join('、');
+      this.report(emit, sessionId, msgId, `资源引用已失效，本轮忽略：${names}`, 'warn');
+    }
+    const active = resolved.states
+      .filter((s) => s.targets.length > 0)
+      .map((s) => `${s.kind === 'datasource' ? '数据源' : 'SSH 主机'} ${s.targets.length} 个`);
+    // 留痕：复盘时要知道「这轮为什么只允许查这个库」
+    this.report(
+      emit,
+      sessionId,
+      msgId,
+      active.length > 0 ? `资源引用生效：${active.join('，')}` : '资源引用均不可用，本轮不限制目标'
+    );
   }
 
   /** 工具定义可贡献易变运行时事实（当前仅 ssh 主机清单），无内容返回空串 */
@@ -299,7 +349,8 @@ export class Orchestrator {
    * 以 user 消息追加在消息尾部，并声明取代此前快照。
    */
   runtimeSnapshot(): string {
-    const blocks = [this.promptContextBlocks(), this.memoryBlock()].filter(Boolean);
+    // 资源引用块排在最前：它约束本轮可用目标，比清单与记忆更需要模型先看到
+    const blocks = [this.refsBlock, this.promptContextBlocks(), this.memoryBlock()].filter(Boolean);
     if (blocks.length === 0) return '';
     return `${SNAPSHOT_MARKER}\n${blocks.join('\n')}`;
   }
@@ -710,13 +761,14 @@ export class Orchestrator {
     sessionId: string,
     text: string,
     emit: (e: OrchestratorEvent) => void,
-    history?: ChatMessageLite[]
+    history?: ChatMessageLite[],
+    refs?: ResourceRef[]
   ): Promise<string> {
     // 单飞：并发任务会互相破坏 aborted/abortController 状态
     if (this.busy) throw new Error('当前有任务正在执行，请等待完成或先停止');
     this.busy = true;
     try {
-      return await this.runTask(sessionId, text, emit, history);
+      return await this.runTask(sessionId, text, emit, history, refs);
     } finally {
       this.busy = false;
     }
@@ -726,7 +778,8 @@ export class Orchestrator {
     sessionId: string,
     text: string,
     emit: (e: OrchestratorEvent) => void,
-    history?: ChatMessageLite[]
+    history?: ChatMessageLite[],
+    refs?: ResourceRef[]
   ): Promise<string> {
     this.aborted = false;
     this.abortController = new AbortController();
@@ -743,6 +796,8 @@ export class Orchestrator {
     const runLog = getConversationLog();
     runLog.begin({ id: msgId, sessionId, task: text, provider: provider.id });
     this.report(emit, sessionId, msgId, `收到任务: ${text.slice(0, 100)}`);
+    // 会话引用在任务开始时解析一次：中途改引用只影响下一轮，不回溯正在跑的 scope
+    this.prepareRefs(refs ?? [], emit, sessionId, msgId);
 
     const messages: LLMChatMessage[] = this.historyMessages(history);
     messages.push({ role: 'user', content: text });
@@ -1078,6 +1133,10 @@ export class Orchestrator {
       this.status(emit, 'main', 'error', msg);
       this.report(emit, sessionId, msgId, `任务失败: ${msg}`, 'error', true);
       throw err;
+    } finally {
+      // 单飞实例：范围与引用块随任务结束清空，下一轮无引用提问不会继承本次限制
+      this.refsBlock = '';
+      this.scope = undefined;
     }
   }
 
