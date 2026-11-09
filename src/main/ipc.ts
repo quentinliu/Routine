@@ -16,7 +16,8 @@ import {
   type Settings,
   type SshExecOptions,
   type SshHostConfig,
-  type TodoTask
+  type TodoTask,
+  type BatchJobInput
 } from '../shared/types';
 import { OrchestratorEvent } from './agent/orchestrator';
 import { normalizeRefs } from './agent/resources';
@@ -29,6 +30,7 @@ import type { McpServerConfig } from '../shared/types';
 import { getBrowserAgentService } from './services/browser';
 import { getComputerService, COMPUTER_OPS } from './services/computer';
 import { getDbService } from './services/db/service';
+import { getBatchService } from './services/batch/jobService';
 import { getFileAgentService } from './services/fileAgent';
 import { getFileIndexService } from './services/fileIndexer';
 import { advance, getScheduler } from './services/scheduler';
@@ -413,6 +415,30 @@ export function registerIpc(): void {
     typeof p?.id === 'string' ? getConversationLog().delete(p.id) : false
   );
   ipcMain.handle(IPC.ConversationClear, () => getConversationLog().clear());
+
+  // 批量数据库巡检（U16）：独立运行时，进度事件为全量快照，渲染层直接替换
+  getBatchService().configure((snapshot) => {
+    sendToRenderer(IPC.BatchProgress, snapshot);
+  });
+  ipcMain.handle(IPC.BatchJobsList, () => getBatchService().list());
+  ipcMain.handle(IPC.BatchJobGet, (_e, p: { id: string }) =>
+    getBatchService().get(String(p?.id ?? ''))
+  );
+  ipcMain.handle(IPC.BatchJobEstimate, (_e, p: { input: BatchJobInput }) =>
+    getBatchService().estimate(p.input)
+  );
+  ipcMain.handle(IPC.BatchJobStart, (_e, p: { input: BatchJobInput }) =>
+    getBatchService().start(p.input)
+  );
+  ipcMain.handle(IPC.BatchJobCancel, (_e, p: { id: string }) =>
+    getBatchService().cancel(String(p?.id ?? ''))
+  );
+  ipcMain.handle(IPC.BatchJobRetry, (_e, p: { id: string }) =>
+    getBatchService().retry(String(p?.id ?? ''))
+  );
+  ipcMain.handle(IPC.BatchJobReport, (_e, p: { id: string }) =>
+    getBatchService().report(String(p?.id ?? ''))
+  );
 
   const mcp = initMcpService(getRegistry());
   mcp.setLogFn((text, level) =>

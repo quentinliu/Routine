@@ -688,3 +688,149 @@ export interface ConversationLogView {
   meta: ConversationTaskMeta;
   lines: ConversationLogLine[];
 }
+
+// ===== 批量数据库巡检（U16 契约批准 2026-11-09，见 CONTRACTS.md 变更记录）=====
+// U13 已下线的 inspection:* / InspectionReport / 检查项注册表不复活；
+// 本组类型只描述一次批量作业的本期快照，不做趋势与通过率。
+
+export type BatchJobMode = 'hybrid' | 'llm-full';
+export type BatchJobState = 'created' | 'running' | 'aggregating' | 'completed' | 'canceled';
+export type BatchWorkerState =
+  | 'pending'
+  | 'running'
+  | 'succeeded'
+  | 'failed'
+  | 'timeout'
+  | 'canceled';
+export type BatchDimensionStatus = 'ok' | 'warn' | 'error' | 'unavailable' | 'skipped';
+
+/** 技能手册 mysql-batch-health-check 的 6 个健康维度 */
+export const BATCH_DIMENSIONS = [
+  'connections',
+  'disk',
+  'replication',
+  'slowQueries',
+  'qps',
+  'memory'
+] as const;
+export type BatchDimensionName = (typeof BATCH_DIMENSIONS)[number];
+
+export interface BatchDimensionResult {
+  name: BatchDimensionName;
+  status: BatchDimensionStatus;
+  value?: number;
+  display?: string;
+  /** 采信依据：SQL / 概览字段 / 行数 / 耗时；0 行必须附 SQL 以便复核 */
+  evidence?: string;
+  /** unavailable / skipped 必填 */
+  reason?: string;
+}
+
+export interface BatchInstanceResult {
+  jobId: string;
+  workerId: string;
+  datasourceId: string;
+  datasourceName: string;
+  dimensions: BatchDimensionResult[];
+  /** 仅 6 维齐全时给出 */
+  healthScore?: number;
+  ok: boolean;
+  attempt: number;
+  durationMs: number;
+  error?: string;
+}
+
+export interface BatchWorker {
+  id: string;
+  jobId: string;
+  index: number;
+  datasourceIds: string[];
+  state: BatchWorkerState;
+  startedAt?: number;
+  endedAt?: number;
+  currentStep?: string;
+  error?: string;
+  attempt: number;
+}
+
+export interface BatchProgress {
+  jobId: string;
+  state: BatchJobState;
+  total: number;
+  succeeded: number;
+  failed: number;
+  running: number;
+  pending: number;
+  activeConcurrency: number;
+  llmCalls: number;
+  elapsedMs: number;
+}
+
+export interface BatchJob {
+  id: string;
+  name: string;
+  mode: BatchJobMode;
+  datasourceIds: string[];
+  batchSize: number;
+  concurrency: number;
+  timeoutMs: number;
+  maxRetries: number;
+  llmBudget: number;
+  createdAt: number;
+  startedAt?: number;
+  endedAt?: number;
+  state: BatchJobState;
+  /** 部分成功：有失败实例但作业仍正常完成 */
+  partial?: boolean;
+  error?: string;
+  /** B 模式 LLM 不可用时降级为 A，报告仍完整 */
+  degradedFrom?: BatchJobMode;
+}
+
+export interface BatchReport {
+  jobId: string;
+  generatedAt: number;
+  total: number;
+  succeeded: number;
+  failed: number;
+  unavailableDimensions: number;
+  healthy: number;
+  attention: number;
+  warning: number;
+  critical: number;
+  /** 按健康分升序的异常实例，最多 20 条 */
+  topN: BatchInstanceResult[];
+  /** 可选 LLM 归因；失败时为空字符串，报告其余部分仍完整 */
+  summary: string;
+  summarySource: 'structured' | 'llm' | 'none';
+}
+
+export interface BatchJobSnapshot {
+  job: BatchJob;
+  workers: BatchWorker[];
+  results: BatchInstanceResult[];
+  progress: BatchProgress;
+  report: BatchReport | null;
+}
+
+export interface BatchJobInput {
+  name?: string;
+  mode: BatchJobMode;
+  datasourceIds: string[];
+  batchSize?: number;
+  concurrency?: number;
+  timeoutMs?: number;
+  maxRetries?: number;
+  llmBudget?: number;
+}
+
+export interface BatchEstimate {
+  total: number;
+  workers: number;
+  llmDecisions: number;
+  sqlQueries: number;
+  estimatedSeconds: number;
+}
+
+/** batch:progress 事件载荷 = 全量作业快照（渲染层直接替换，不做增量合并） */
+export type BatchProgressEvent = BatchJobSnapshot;

@@ -6,6 +6,7 @@ export function Topbar() {
   const setFileDialogOpen = useAppStore((s) => s.setFileDialogOpen);
   const setTodoDialogOpen = useAppStore((s) => s.setTodoDialogOpen);
   const openDbWorkbench = useAppStore((s) => s.openDbWorkbench);
+  const setBatchOpen = useAppStore((s) => s.setBatchOpen);
 
   return (
     <header className="topbar">
@@ -59,6 +60,14 @@ export function Topbar() {
             />
           </svg>
           数据库
+        </button>
+        <button className="topbar-btn" onClick={() => setBatchOpen(true)}>
+          <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden>
+            <rect x="3" y="4" width="18" height="6" rx="1.5" fill="none" stroke="currentColor" strokeWidth="1.8" />
+            <rect x="3" y="14" width="18" height="6" rx="1.5" fill="none" stroke="currentColor" strokeWidth="1.8" />
+            <path d="M7 7h.01M7 17h.01M11 7h6M11 17h6" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+          </svg>
+          批量巡检
         </button>
         <button className="topbar-btn" onClick={() => setTodoDialogOpen(true)}>
           <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden>

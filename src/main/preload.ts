@@ -68,7 +68,15 @@ const CH = {
   SafetyRequest: 'safety:request',
   LogEntry: 'log:entry',
   IndexProgress: 'index:progress',
-  TodoRunsChanged: 'todo:runs-changed'
+  TodoRunsChanged: 'todo:runs-changed',
+  BatchJobsList: 'batch:jobs:list',
+  BatchJobGet: 'batch:jobs:get',
+  BatchJobEstimate: 'batch:jobs:estimate',
+  BatchJobStart: 'batch:jobs:start',
+  BatchJobCancel: 'batch:jobs:cancel',
+  BatchJobRetry: 'batch:jobs:retry',
+  BatchJobReport: 'batch:jobs:report',
+  BatchProgress: 'batch:progress'
 } as const;
 
 function subscribe<T>(channel: string, cb: (payload: T) => void): () => void {
@@ -142,6 +150,14 @@ const api: RoutineApi = {
   conversationDelete: (id) => ipcRenderer.invoke(CH.ConversationDelete, { id }),
   conversationClear: () => ipcRenderer.invoke(CH.ConversationClear),
 
+  batchJobsList: () => ipcRenderer.invoke(CH.BatchJobsList),
+  batchJobGet: (id) => ipcRenderer.invoke(CH.BatchJobGet, { id }),
+  batchJobEstimate: (input) => ipcRenderer.invoke(CH.BatchJobEstimate, { input }),
+  batchJobStart: (input) => ipcRenderer.invoke(CH.BatchJobStart, { input }),
+  batchJobCancel: (id) => ipcRenderer.invoke(CH.BatchJobCancel, { id }),
+  batchJobRetry: (id) => ipcRenderer.invoke(CH.BatchJobRetry, { id }),
+  batchJobReport: (id) => ipcRenderer.invoke(CH.BatchJobReport, { id }),
+
   onChatDelta: (cb) => subscribe(CH.ChatDelta, cb),
   onChatError: (cb) => subscribe(CH.ChatError, cb),
   onAgentStatus: (cb) => subscribe(CH.AgentStatus, cb),
@@ -150,7 +166,8 @@ const api: RoutineApi = {
   onSafetyRequest: (cb) => subscribe(CH.SafetyRequest, cb),
   onLogEntry: (cb) => subscribe(CH.LogEntry, cb),
   onIndexProgress: (cb) => subscribe(CH.IndexProgress, cb),
-  onTodoRunsChanged: (cb) => subscribe(CH.TodoRunsChanged, cb)
+  onTodoRunsChanged: (cb) => subscribe(CH.TodoRunsChanged, cb),
+  onBatchProgress: (cb) => subscribe(CH.BatchProgress, cb)
 };
 
 contextBridge.exposeInMainWorld('api', api);

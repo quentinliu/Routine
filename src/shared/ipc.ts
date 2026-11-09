@@ -2,6 +2,12 @@
 import type {
   AgentStatus,
   AgentTraceEvent,
+  BatchEstimate,
+  BatchJob,
+  BatchJobInput,
+  BatchJobSnapshot,
+  BatchProgressEvent,
+  BatchReport,
   BrowserTaskResult,
   ChatDeltaEvent,
   ChatErrorEvent,
@@ -114,7 +120,16 @@ export const IPC = {
   SafetyRequest: 'safety:request',
   LogEntry: 'log:entry',
   IndexProgress: 'index:progress',
-  TodoRunsChanged: 'todo:runs-changed'
+  TodoRunsChanged: 'todo:runs-changed',
+  // 批量数据库巡检（U16 契约批准 2026-11-09，见 CONTRACTS.md 变更记录）
+  BatchJobsList: 'batch:jobs:list',
+  BatchJobGet: 'batch:jobs:get',
+  BatchJobEstimate: 'batch:jobs:estimate',
+  BatchJobStart: 'batch:jobs:start',
+  BatchJobCancel: 'batch:jobs:cancel',
+  BatchJobRetry: 'batch:jobs:retry',
+  BatchJobReport: 'batch:jobs:report',
+  BatchProgress: 'batch:progress'
 } as const;
 
 export interface LlmHealth {
@@ -133,6 +148,7 @@ export interface EventPayloadMap {
   [IPC.LogEntry]: LogEntry;
   [IPC.IndexProgress]: IndexProgress;
   [IPC.TodoRunsChanged]: undefined;
+  [IPC.BatchProgress]: BatchProgressEvent;
 }
 
 /**
@@ -212,6 +228,19 @@ export interface RoutineApi {
   /** 清空全部任务日志，返回实际删除的条数 */
   conversationClear(): Promise<number>;
 
+  /** 批量巡检作业列表（按创建时间倒序，最多 50 条） */
+  batchJobsList(): Promise<BatchJob[]>;
+  /** 作业全量快照：进度事件未到达时用于重连恢复 */
+  batchJobGet(id: string): Promise<BatchJobSnapshot | null>;
+  /** 发起前的成本估算（worker 数 / LLM 决策轮 / SQL 次数 / 预计耗时） */
+  batchJobEstimate(input: BatchJobInput): Promise<BatchEstimate>;
+  /** 创建并启动作业；返回首帧快照，后续进度经 batch:progress 推送 */
+  batchJobStart(input: BatchJobInput): Promise<BatchJobSnapshot>;
+  batchJobCancel(id: string): Promise<BatchJobSnapshot | null>;
+  /** 只重试失败 / 超时 / 取消的实例，已成功结果保持不变 */
+  batchJobRetry(id: string): Promise<BatchJobSnapshot>;
+  batchJobReport(id: string): Promise<BatchReport | null>;
+
   onChatDelta(cb: (e: ChatDeltaEvent) => void): () => void;
   onChatError(cb: (e: ChatErrorEvent) => void): () => void;
   onAgentStatus(cb: (s: AgentStatus) => void): () => void;
@@ -221,4 +250,5 @@ export interface RoutineApi {
   onLogEntry(cb: (l: LogEntry) => void): () => void;
   onIndexProgress(cb: (p: IndexProgress) => void): () => void;
   onTodoRunsChanged(cb: () => void): () => void;
+  onBatchProgress(cb: (e: BatchProgressEvent) => void): () => void;
 }

@@ -4,6 +4,8 @@ import { AGENT_NAMES,
   type AgentName,
   type AgentStatus,
   type AgentTraceEvent,
+  type BatchJob,
+  type BatchJobSnapshot,
   type ChatMessage,
   type ChatSession,
   type DatasourceConfig,
@@ -155,6 +157,11 @@ interface AppState {
   runningStartedAt: number | null;
   notice: string | null;
   confirmRequest: ConfirmRequest | null;
+  /** 批量巡检：独立全屏开关与作业快照，不复用 runningSessionId 单值 */
+  batchOpen: boolean;
+  batchSnapshot: BatchJobSnapshot | null;
+  batchJobs: BatchJob[];
+  batchError: string | null;
 
   bootstrap(): Promise<void>;
   refreshCloudHealth(): Promise<void>;
@@ -187,6 +194,11 @@ interface AppState {
   setNotice(message: string | null): void;
   requestConfirm(request: ConfirmRequest): void;
   resolveConfirm(ok: boolean): void;
+  /** 批量巡检：独立全屏开关与作业快照，不复用 runningSessionId 单值 */
+  setBatchOpen(open: boolean): void;
+  applyBatchProgress(snapshot: BatchJobSnapshot): void;
+  setBatchJobs(jobs: BatchJob[]): void;
+  setBatchError(e: string | null): void;
 }
 
 export const useAppStore = create<AppState>()((set, get) => ({
@@ -208,6 +220,10 @@ export const useAppStore = create<AppState>()((set, get) => ({
   convLogOpen: false,
   dbWorkbenchOpen: false,
   dbWorkbenchDatasourceId: null,
+  batchOpen: false,
+  batchSnapshot: null,
+  batchJobs: [],
+  batchError: null,
   composerDraft: '',
   resources: null,
   resourcesLoading: false,
@@ -459,6 +475,15 @@ export const useAppStore = create<AppState>()((set, get) => ({
     setThemeMode(s.appearance?.theme ?? 'system');
     set({ settings: s });
   },
+  setBatchOpen: (open) =>
+    set(
+      open
+        ? { batchOpen: true, settingsOpen: false, dbWorkbenchOpen: false, todoDialogOpen: false }
+        : { batchOpen: false }
+    ),
+  applyBatchProgress: (snapshot) => set({ batchSnapshot: snapshot, batchError: null }),
+  setBatchJobs: (jobs) => set({ batchJobs: jobs }),
+  setBatchError: (e) => set({ batchError: e }),
   setNotice: (message) => set({ notice: message }),
   requestConfirm: (request) => set({ confirmRequest: request }),
   resolveConfirm: (ok) => {

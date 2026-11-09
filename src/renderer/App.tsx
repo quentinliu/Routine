@@ -9,6 +9,7 @@ import { FileSearchDialog } from './components/FileSearchDialog';
 import { TodoDialog } from './components/TodoDialog';
 import { ConversationLogDialog } from './components/ConversationLogDialog';
 import { DatabaseWorkbench } from './components/DatabaseWorkbench';
+import { BatchInspectionView } from './components/BatchInspectionView';
 import { SafetyDialog } from './components/SafetyDialog';
 import { NoticeDialogs } from './components/NoticeDialogs';
 import { OnboardingWizard, onboardingDismissed } from './components/OnboardingWizard';
@@ -21,6 +22,7 @@ export function App() {
   const todoDialogOpen = useAppStore((s) => s.todoDialogOpen);
   const convLogOpen = useAppStore((s) => s.convLogOpen);
   const dbWorkbenchOpen = useAppStore((s) => s.dbWorkbenchOpen);
+  const batchOpen = useAppStore((s) => s.batchOpen);
   const pendingSafety = useAppStore((s) => s.pendingSafety);
   const [booted, setBooted] = useState(false);
   const [wizardOpen, setWizardOpen] = useState(() => !onboardingDismissed());
@@ -41,7 +43,8 @@ export function App() {
       window.api.onLogEntry((l) => state().pushLog(l)),
       window.api.onSafetyRequest((r) => state().setPendingSafety(r)),
       window.api.onIndexProgress((p) => state().setIndexProgress(p)),
-      window.api.onTodoRunsChanged(() => state().refreshSessions())
+      window.api.onTodoRunsChanged(() => state().refreshSessions()),
+      window.api.onBatchProgress((e) => state().applyBatchProgress(e))
     ];
     return () => unsubs.forEach((u) => u());
   }, []);
@@ -57,6 +60,7 @@ export function App() {
       {todoDialogOpen && <TodoDialog />}
       {convLogOpen && <ConversationLogDialog />}
       {dbWorkbenchOpen && <DatabaseWorkbench />}
+      {batchOpen && <BatchInspectionView />}
       {pendingSafety && <SafetyDialog request={pendingSafety} />}
       {booted &&
         wizardOpen &&

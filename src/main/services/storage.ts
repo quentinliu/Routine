@@ -3,6 +3,7 @@ import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import {
   DEFAULT_SETTINGS,
+  type BatchJob,
   type ChatSession,
   type CloudProfile,
   type CloudProviderConfig,
@@ -26,8 +27,10 @@ const TODOS_FILE = 'todos.json';
 const DATASOURCES_FILE = 'datasources.json';
 const SSH_HOSTS_FILE = 'ssh-hosts.json';
 const MCP_SERVERS_FILE = 'mcp-servers.json';
+const BATCH_JOBS_FILE = 'batch-jobs.json';
 
 const MAX_TODO_RUNS = 300;
+const MAX_BATCH_JOBS = 50;
 
 interface TodosFileShape {
   tasks: TodoTask[];
@@ -254,6 +257,16 @@ export class StorageService {
 
   saveMcpServers(list: McpServerConfig[]): void {
     this.writeJson(MCP_SERVERS_FILE, list);
+  }
+
+  /** 批量巡检作业索引（只存作业元数据与状态，实例结果单独按作业增量落盘） */
+  loadBatchJobs(): BatchJob[] {
+    const saved = this.readJson<BatchJob[]>(BATCH_JOBS_FILE, []);
+    return Array.isArray(saved) ? saved : [];
+  }
+
+  saveBatchJobs(list: BatchJob[]): void {
+    this.writeJson(BATCH_JOBS_FILE, list.slice(0, MAX_BATCH_JOBS));
   }
 
   saveIndex(files: FileRecord[]): void {
